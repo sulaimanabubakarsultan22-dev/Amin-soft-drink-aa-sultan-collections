@@ -1,0 +1,135 @@
+{
+  "categories": [
+    "Soft Drinks",
+    "Dairy Drinks",
+    "Energy Drinks",
+    "Juices",
+    "Water & Beverages",
+    "Clothes (Riguna)",
+    "Maza – Maza (Babbar Rigar / Ƙaramar Riga / Jamfa / Jallabiya)",
+    "Mata – Mata (Riguna / Hijabi / Kayan Ɗinki)",
+    "Jarirai da Yara – Baby & Kids"
+  ],
+  "products": [
+    {
+      "name": "Coca Cola",
+      "category": "Soft Drinks",
+      "price": 4800,
+      "description": "Coca Cola — farashin guda; za a iya saita farashin carton daga Admin.",
+      "stock": 100
+    },
+    {
+      "name": "Fanta",
+      "category": "Soft Drinks",
+      "price": 4800,
+      "description": "Fanta — farashin guda; za a iya saita farashin carton daga Admin.",
+      "stock": 100
+    },
+    {
+      "name": "Mr V",
+      "category": "Soft Drinks",
+      "price": 2200,
+      "description": "Mr V — farashin guda; za a iya saita farashin carton daga Admin.",
+      "stock": 100
+    },
+    {
+      "name": "Nutri-milk",
+      "category": "Dairy Drinks",
+      "price": 6000,
+      "description": "Nutri-milk — farashin guda; za a iya saita farashin carton daga Admin.",
+      "stock": 100
+    },
+    {
+      "name": "Peach",
+      "category": "Juices",
+      "price": 5800,
+      "description": "Peach — farashin guda; za a iya saita farashin carton daga Admin.",
+      "stock": 100
+    },
+    {
+      "name": "Schweppes Can",
+      "category": "Soft Drinks",
+      "price": 11500,
+      "description": "Schweppes Can — an shigar da farashin da aka bayar; za a iya gyara guda/carton a Admin.",
+      "stock": 100
+    },
+    {
+      "name": "Hollandia",
+      "category": "Dairy Drinks",
+      "price": 16500,
+      "description": "Hollandia — farashin da aka bayar; za a iya gyara guda/carton a Admin.",
+      "stock": 100
+    },
+    {
+      "name": "Exotic",
+      "category": "Juices",
+      "price": 14500,
+      "description": "Exotic — farashin da aka bayar; za a iya gyara guda/carton a Admin.",
+      "stock": 100
+    },
+    {
+      "name": "Lacasera",
+      "category": "Soft Drinks",
+      "price": 4200,
+      "description": "Lacasera — farashin guda; za a iya saita farashin carton daga Admin.",
+      "stock": 100
+    },
+    {
+      "name": "Chapman",
+      "category": "Soft Drinks",
+      "price": 2700,
+      "description": "Chapman — farashin guda; za a iya saita farashin carton daga Admin.",
+      "stock": 100
+    },
+    {
+      "name": "Lacasera Small",
+      "category": "Soft Drinks",
+      "price": 3000,
+      "description": "Lacasera Small — farashin guda; za a iya saita farashin carton daga Admin.",
+      "stock": 100
+    },
+    {
+      "name": "Predator",
+      "category": "Energy Drinks",
+      "price": 5300,
+      "description": "Predator — farashin guda; za a iya saita farashin carton daga Admin.",
+      "stock": 100
+    },
+    {
+      "name": "Schweppes",
+      "category": "Soft Drinks",
+      "price": 5400,
+      "description": "Schweppes — farashin guda; za a iya saita farashin carton daga Admin.",
+      "stock": 100
+    },
+    {
+      "name": "Maltina Can",
+      "category": "Dairy Drinks",
+      "price": 13000,
+      "description": "Maltina Can — farashin da aka bayar; za a iya gyara guda/carton a Admin.",
+      "stock": 100
+    },
+    {
+      "name": "Sprite",
+      "category": "Soft Drinks",
+      "price": 5000,
+      "description": "Sprite — farashin guda; za a iya saita farashin carton daga Admin.",
+      "stock": 100
+    },
+    {
+      "name": "Yugo",
+      "category": "Dairy Drinks",
+      "price": 7000,
+      "description": "Yugo — farashin guda; za a iya saita farashin carton daga Admin.",
+      "stock": 100
+    },
+    {
+      "name": "5Alive Big & Small",
+      "category": "Juices",
+      "price": 6000,
+      "size": "Big & Small",
+      "description": "5Alive Big & Small — farashin da aka bayar; za a iya saita farashin carton daga Admin.",
+      "stock": 100
+    }
+  ]
+}

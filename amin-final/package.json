@@ -1,0 +1,13 @@
+{
+  "name": "store",
+  "version": "1.0.0",
+  "private": true,
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "start": "node --env-file=.env seed-catalog.js && node --env-file=.env server.js",
+    "test": "node test.js && node test2.js",
+    "db:seed": "node seed-catalog.js"
+  }
+}
