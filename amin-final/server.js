@@ -49,7 +49,9 @@ const hit = k => { if (!hits.has(k)) hits.set(k, []); hits.get(k).push(Date.now(
 const ph = p => { const m = /^(?:234|0)([789][01]\d{8})$/.exec(String(p || '').replace(/[\s\-+]/g, '')); return m ? '0' + m[1] : null; };
 const str = (v, min, max, f) => { v = String(v ?? '').trim(); if (v.length < min || v.length > max) throw new Err(400, `${f} is invalid`); return v; };
 const int = (v, min, max, f) => { v = Number(v); if (!Number.isInteger(v) || v < min || v > max) throw new Err(400, `${f} is invalid`); return v; };
-const DEF = { name: 'AMIN SOFT DRINK & A.A SULTAN COLLECTIONS', tag: 'Soft drinks and a wide range of household products • Order online • Pay online • We deliver to your doorstep', wa: '2348163827505', phone: '08163827505', email: '', address: '', cur: '₦', fee: String(FEE), fb: '', ig: '', x: '', tt: '', hours: '', returns: '' };
+const DEF = { name: 'AMIN SOFT DRINK & A.A SULTAN COLLECTIONS', tag: 'Soft drinks and a wide range of household products • Order online • Pay online • We deliver to your doorstep', wa: '2348127718573', phone: '08127718573', care1: '08127718573', care2: '07046918331', delivery1: '07048243053', delivery2: '08139719308', email: '', address: '', cur: '₦', fee: String(FEE), fb: '', ig: '', x: '', tt: '', hours: '', returns: '' };
+db.prepare('UPDATE settings SET v=? WHERE k=? AND v=?').run('08127718573', 'phone', '08163827505');
+db.prepare('UPDATE settings SET v=? WHERE k=? AND v=?').run('2348127718573', 'wa', '2348163827505');
 const settings = () => { const o = { ...DEF }; for (const r of db.prepare('SELECT k,v FROM settings').all()) if (r.k in DEF) o[r.k] = r.v; return o; };
 // Notification hook: wire email/SMS/WhatsApp providers here. Nothing is sent until you do.
 const notify = (event, data) => {};
@@ -146,6 +148,7 @@ db.exec('CREATE INDEX IF NOT EXISTS ix_pcat ON products(category_id)');
 for (const r of db.prepare("SELECT DISTINCT category c FROM products WHERE category<>'' AND category_id IS NULL").all()) { db.prepare('INSERT OR IGNORE INTO categories(name) VALUES(?)').run(r.c); db.prepare('UPDATE products SET category_id=(SELECT id FROM categories WHERE name=?) WHERE category=? AND category_id IS NULL').run(r.c, r.c); }
 const CV = '(category_id IS NULL OR category_id IN (SELECT id FROM categories WHERE active=1))';
 const IMG = /^data:image\/(jpeg|png|webp);base64,[A-Za-z0-9+/=]+$/;
+const PRODUCT_ART = /^\/assets\/products\/[a-z0-9-]+\/[a-z0-9-]+\.svg$/;
 function prodFields(b) {
   const price = int(b.price, 1, 1e9, 'Unit price'), discount = b.discount ? int(b.discount, 0, 1e9, 'Discount') : 0;
   const carton_price = b.carton_price === '' || b.carton_price == null ? null : int(b.carton_price, 1, 1e9, 'Carton price');
@@ -157,7 +160,9 @@ function prodFields(b) {
   const featured = b.featured ? 1 : 0;
   if (discount >= price && discount) throw new Err(400, 'Discount must be lower than price');
   const validMedia = v => { if (!v) return true; const m = IMG.exec(v), buf = m && Buffer.from(v.slice(v.indexOf(',') + 1), 'base64'); const ok = buf && buf.length <= 700e3 && ((m[1] === 'jpeg' && buf[0] === 0xff && buf[1] === 0xd8 && buf[2] === 0xff) || (m[1] === 'png' && buf.subarray(0, 4).equals(Buffer.from([0x89,0x50,0x4e,0x47]))) || (m[1] === 'webp' && buf.subarray(0,4).toString()==='RIFF' && buf.subarray(8,12).toString()==='WEBP')); return !!ok; };
-  if (b.image) { const m = IMG.exec(b.image), buf = m && Buffer.from(b.image.slice(b.image.indexOf(',') + 1), 'base64');
+  if (b.image && PRODUCT_ART.test(b.image)) {
+    if (!fs.existsSync(path.join(__dirname, 'public', b.image.slice(1)))) throw new Err(400, 'Product illustration was not found');
+  } else if (b.image) { const m = IMG.exec(b.image), buf = m && Buffer.from(b.image.slice(b.image.indexOf(',') + 1), 'base64');
     const ok = buf && buf.length <= 700e3 && ((m[1] === 'jpeg' && buf[0] === 0xff && buf[1] === 0xd8 && buf[2] === 0xff) || (m[1] === 'png' && buf.subarray(0, 4).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47]))) || (m[1] === 'webp' && buf.subarray(0, 4).toString() === 'RIFF' && buf.subarray(8, 12).toString() === 'WEBP'));
     if (!ok) throw new Err(400, 'Image must be a real JPG, PNG or WebP under 700KB'); }
   if (b.image_front && !validMedia(b.image_front)) throw new Err(400, 'Front image must be a real JPG, PNG or WebP under 700KB');
@@ -367,7 +372,14 @@ http.createServer(async (req, res) => {
       }
       if ((m2 = /^\/img\/(\d+)$/.exec(u))) {
         let adm = false; try { adminOf(req); adm = true; } catch {}
-        const x = db.prepare('SELECT image FROM products WHERE id=? AND ((active=1 AND ' + CV + ') OR ?)').get(+m2[1], adm ? 1 : 0), mm = x && IMG.exec(x.image || '');
+        const x = db.prepare('SELECT image FROM products WHERE id=? AND ((active=1 AND ' + CV + ') OR ?)').get(+m2[1], adm ? 1 : 0);
+        if (x && PRODUCT_ART.test(x.image || '')) {
+          const file = path.join(__dirname, 'public', x.image.slice(1));
+          if (!fs.existsSync(file)) return send(404, { error: 'Not found' });
+          res.writeHead(200, { 'content-type': 'image/svg+xml; charset=utf-8', 'cache-control': 'public, max-age=86400', 'x-content-type-options': 'nosniff', 'content-security-policy': "default-src 'none'; style-src 'none'; sandbox" });
+          return res.end(fs.readFileSync(file));
+        }
+        const mm = x && IMG.exec(x.image || '');
         if (!mm) return send(404, { error: 'Not found' });
         res.writeHead(200, { 'content-type': 'image/' + mm[1], 'cache-control': 'public, max-age=86400', 'x-content-type-options': 'nosniff', 'content-security-policy': "default-src 'none'" });
         return res.end(Buffer.from(x.image.slice(x.image.indexOf(',') + 1), 'base64'));

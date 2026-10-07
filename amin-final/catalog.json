@@ -1,135 +1,128 @@
 {
   "categories": [
-    "Soft Drinks",
-    "Dairy Drinks",
+    "Drinks",
     "Energy Drinks",
-    "Juices",
-    "Water & Beverages",
-    "Clothes (Riguna)",
-    "Maza – Maza (Babbar Rigar / Ƙaramar Riga / Jamfa / Jallabiya)",
-    "Mata – Mata (Riguna / Hijabi / Kayan Ɗinki)",
-    "Jarirai da Yara – Baby & Kids"
+    "Juice",
+    "Water",
+    "Women's Clothing",
+    "Children's Clothing",
+    "Men's Clothing",
+    "Sewing Materials"
   ],
   "products": [
-    {
-      "name": "Coca Cola",
-      "category": "Soft Drinks",
-      "price": 4800,
-      "description": "Coca Cola — farashin guda; za a iya saita farashin carton daga Admin.",
-      "stock": 100
-    },
-    {
-      "name": "Fanta",
-      "category": "Soft Drinks",
-      "price": 4800,
-      "description": "Fanta — farashin guda; za a iya saita farashin carton daga Admin.",
-      "stock": 100
-    },
-    {
-      "name": "Mr V",
-      "category": "Soft Drinks",
-      "price": 2200,
-      "description": "Mr V — farashin guda; za a iya saita farashin carton daga Admin.",
-      "stock": 100
-    },
-    {
-      "name": "Nutri-milk",
-      "category": "Dairy Drinks",
-      "price": 6000,
-      "description": "Nutri-milk — farashin guda; za a iya saita farashin carton daga Admin.",
-      "stock": 100
-    },
-    {
-      "name": "Peach",
-      "category": "Juices",
-      "price": 5800,
-      "description": "Peach — farashin guda; za a iya saita farashin carton daga Admin.",
-      "stock": 100
-    },
-    {
-      "name": "Schweppes Can",
-      "category": "Soft Drinks",
-      "price": 11500,
-      "description": "Schweppes Can — an shigar da farashin da aka bayar; za a iya gyara guda/carton a Admin.",
-      "stock": 100
-    },
-    {
-      "name": "Hollandia",
-      "category": "Dairy Drinks",
-      "price": 16500,
-      "description": "Hollandia — farashin da aka bayar; za a iya gyara guda/carton a Admin.",
-      "stock": 100
-    },
-    {
-      "name": "Exotic",
-      "category": "Juices",
-      "price": 14500,
-      "description": "Exotic — farashin da aka bayar; za a iya gyara guda/carton a Admin.",
-      "stock": 100
-    },
-    {
-      "name": "Lacasera",
-      "category": "Soft Drinks",
-      "price": 4200,
-      "description": "Lacasera — farashin guda; za a iya saita farashin carton daga Admin.",
-      "stock": 100
-    },
-    {
-      "name": "Chapman",
-      "category": "Soft Drinks",
-      "price": 2700,
-      "description": "Chapman — farashin guda; za a iya saita farashin carton daga Admin.",
-      "stock": 100
-    },
-    {
-      "name": "Lacasera Small",
-      "category": "Soft Drinks",
-      "price": 3000,
-      "description": "Lacasera Small — farashin guda; za a iya saita farashin carton daga Admin.",
-      "stock": 100
-    },
-    {
-      "name": "Predator",
-      "category": "Energy Drinks",
-      "price": 5300,
-      "description": "Predator — farashin guda; za a iya saita farashin carton daga Admin.",
-      "stock": 100
-    },
-    {
-      "name": "Schweppes",
-      "category": "Soft Drinks",
-      "price": 5400,
-      "description": "Schweppes — farashin guda; za a iya saita farashin carton daga Admin.",
-      "stock": 100
-    },
-    {
-      "name": "Maltina Can",
-      "category": "Dairy Drinks",
-      "price": 13000,
-      "description": "Maltina Can — farashin da aka bayar; za a iya gyara guda/carton a Admin.",
-      "stock": 100
-    },
-    {
-      "name": "Sprite",
-      "category": "Soft Drinks",
-      "price": 5000,
-      "description": "Sprite — farashin guda; za a iya saita farashin carton daga Admin.",
-      "stock": 100
-    },
-    {
-      "name": "Yugo",
-      "category": "Dairy Drinks",
-      "price": 7000,
-      "description": "Yugo — farashin guda; za a iya saita farashin carton daga Admin.",
-      "stock": 100
-    },
-    {
-      "name": "5Alive Big & Small",
-      "category": "Juices",
-      "price": 6000,
-      "size": "Big & Small",
-      "description": "5Alive Big & Small — farashin da aka bayar; za a iya saita farashin carton daga Admin.",
-      "stock": 100
-    }
+    {"name":"Coca-Cola","category":"Drinks","price":4800},
+    {"name":"Sprite","category":"Drinks","price":5000},
+    {"name":"Fanta","category":"Drinks","price":4800},
+    {"name":"Pepsi","category":"Drinks","price":750},
+    {"name":"7UP","category":"Drinks","price":750},
+    {"name":"La Casera","category":"Drinks","price":4200},
+    {"name":"Chapman","category":"Drinks","price":2700},
+    {"name":"Viju Cola","category":"Drinks","price":650},
+    {"name":"Maltina","category":"Drinks","price":13000},
+    {"name":"Malta Guinness","category":"Drinks","price":14000},
+    {"name":"Amstel Malta","category":"Drinks","price":13500},
+    {"name":"Nutri-Milk","category":"Drinks","price":6000},
+    {"name":"Hollandia Yoghurt","category":"Drinks","price":16500},
+    {"name":"Chivita","category":"Drinks","price":9500},
+    {"name":"5 Alive","category":"Drinks","price":6000},
+    {"name":"Exotic","category":"Drinks","price":14500},
+    {"name":"Ribena","category":"Drinks","price":1200},
+    {"name":"Lucozade Boost","category":"Drinks","price":1500},
+    {"name":"Schweppes","category":"Drinks","price":5400},
+    {"name":"Teem","category":"Drinks","price":750},
+
+    {"name":"Fearless","category":"Energy Drinks","price":900},
+    {"name":"Predator","category":"Energy Drinks","price":5300},
+    {"name":"Super Cheetah","category":"Energy Drinks","price":900},
+    {"name":"ZAGG","category":"Energy Drinks","price":800},
+    {"name":"Power Horse","category":"Energy Drinks","price":1800},
+    {"name":"Red Bull","category":"Energy Drinks","price":2500},
+    {"name":"Monster Energy","category":"Energy Drinks","price":2500},
+    {"name":"Bullet","category":"Energy Drinks","price":1200},
+    {"name":"Climax","category":"Energy Drinks","price":800},
+    {"name":"Supa Komando","category":"Energy Drinks","price":900},
+
+    {"name":"Exotic","category":"Juice","price":14500},
+    {"name":"Hollandia","category":"Juice","price":2500},
+    {"name":"Chivita","category":"Juice","price":1000},
+    {"name":"5 Alive","category":"Juice","price":6000},
+    {"name":"Chivita Active","category":"Juice","price":1200},
+    {"name":"Ribena","category":"Juice","price":1200},
+    {"name":"Happy Hour","category":"Juice","price":800},
+    {"name":"Viju Juice","category":"Juice","price":650},
+
+    {"name":"Mr V","category":"Water","price":2200},
+    {"name":"Faro Water","category":"Water","price":500},
+    {"name":"Eva Water","category":"Water","price":600},
+    {"name":"Aquafina","category":"Water","price":600},
+    {"name":"Nestlé Pure Life","category":"Water","price":500},
+    {"name":"SWAN Water","category":"Water","price":500},
+    {"name":"CWAY Water","category":"Water","price":500},
+
+    {"name":"Atamfa","category":"Women's Clothing","price":18000},
+    {"name":"Lace","category":"Women's Clothing","price":25000},
+    {"name":"Ankara","category":"Women's Clothing","price":12000},
+    {"name":"Chiffon","category":"Women's Clothing","price":8000},
+    {"name":"Silk","category":"Women's Clothing","price":12000},
+    {"name":"Kaftan","category":"Women's Clothing","price":18000},
+    {"name":"Long Dress","category":"Women's Clothing","price":18000},
+    {"name":"Two-Piece Set","category":"Women's Clothing","price":22000},
+    {"name":"Abaya","category":"Women's Clothing","price":20000},
+    {"name":"Hijab","category":"Women's Clothing","price":5000},
+    {"name":"Jumpsuit","category":"Women's Clothing","price":18000},
+    {"name":"Skirt & Blouse","category":"Women's Clothing","price":22000},
+    {"name":"Peplum Top","category":"Women's Clothing","price":12000},
+    {"name":"Kimono","category":"Women's Clothing","price":14000},
+    {"name":"Gown","category":"Women's Clothing","price":20000},
+
+    {"name":"Boys' Kaftan","category":"Children's Clothing","price":10000},
+    {"name":"Girls' Dress","category":"Children's Clothing","price":9000},
+    {"name":"Children's Ankara","category":"Children's Clothing","price":8000},
+    {"name":"T-Shirt","category":"Children's Clothing","price":5000},
+    {"name":"Jeans","category":"Children's Clothing","price":9000},
+    {"name":"Shorts","category":"Children's Clothing","price":5000},
+    {"name":"Joggers","category":"Children's Clothing","price":8000},
+    {"name":"Tracksuit","category":"Children's Clothing","price":12000},
+    {"name":"Baby Romper","category":"Children's Clothing","price":6000},
+    {"name":"Baby Dress","category":"Children's Clothing","price":7000},
+    {"name":"Children's Jallabiya","category":"Children's Clothing","price":10000},
+
+    {"name":"Jallabiya","category":"Men's Clothing","price":22000},
+    {"name":"Karamar Riga","category":"Men's Clothing","price":15000},
+    {"name":"Babban Riga","category":"Men's Clothing","price":25000},
+    {"name":"Kaftan","category":"Men's Clothing","price":22000},
+    {"name":"Senator Wear","category":"Men's Clothing","price":30000},
+    {"name":"Native Shirt","category":"Men's Clothing","price":18000},
+    {"name":"T-Shirt","category":"Men's Clothing","price":8000},
+    {"name":"Polo Shirt","category":"Men's Clothing","price":12000},
+    {"name":"Jeans","category":"Men's Clothing","price":18000},
+    {"name":"Trousers","category":"Men's Clothing","price":16000},
+    {"name":"Joggers","category":"Men's Clothing","price":12000},
+    {"name":"Tracksuit","category":"Men's Clothing","price":25000},
+    {"name":"Cap","category":"Men's Clothing","price":5000},
+    {"name":"Turban","category":"Men's Clothing","price":6000},
+    {"name":"Sandals","category":"Men's Clothing","price":12000},
+
+    {"name":"Sewing Thread","category":"Sewing Materials","price":1500},
+    {"name":"Needles","category":"Sewing Materials","price":800},
+    {"name":"Embroidery Thread","category":"Sewing Materials","price":2500},
+    {"name":"Zipper","category":"Sewing Materials","price":500},
+    {"name":"Buttons","category":"Sewing Materials","price":800},
+    {"name":"Measuring Tape","category":"Sewing Materials","price":1000},
+    {"name":"Tailor's Chalk","category":"Sewing Materials","price":500},
+    {"name":"Elastic","category":"Sewing Materials","price":1000},
+    {"name":"Lining Fabric","category":"Sewing Materials","price":5000},
+    {"name":"Safety Pins","category":"Sewing Materials","price":700},
+    {"name":"Sewing Scissors","category":"Sewing Materials","price":3500},
+    {"name":"Bobbins","category":"Sewing Materials","price":800},
+    {"name":"Beads","category":"Sewing Materials","price":2500},
+    {"name":"Sequins","category":"Sewing Materials","price":2500},
+    {"name":"Lace Trimming","category":"Sewing Materials","price":3000},
+
+    {"name":"Peach","category":"Juice","legacy":true},
+    {"name":"Schweppes Can","category":"Drinks","legacy":true},
+    {"name":"La Casera Small","category":"Drinks","legacy":true},
+    {"name":"Maltina Can","category":"Drinks","legacy":true},
+    {"name":"Yugo","category":"Drinks","legacy":true}
   ]
 }

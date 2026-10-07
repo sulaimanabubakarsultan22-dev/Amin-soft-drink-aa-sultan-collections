@@ -1,26 +1,15 @@
-# AMIN SOFT DRINK & A.A SULTAN COLLECTIONS — Initial Catalog
+# AMIN SOFT DRINK & A.A SULTAN COLLECTIONS Catalog
 
-## Drinks
+The English-language catalog is maintained in `catalog.json` and contains 101
+products across Drinks, Energy Drinks, Juice, Water, Women's Clothing,
+Children's Clothing, Men's Clothing, and Sewing Materials. Seeded prices and
+stock are starter values; the owner can edit them in Admin. Re-running the
+catalog seed preserves existing Admin price and stock changes.
 
-| Product | Price entered (₦) |
-|---|---:|
-| Coca Cola | 4,800 |
-| Fanta | 4,800 |
-| Mr V | 2,200 |
-| Nutri-milk | 6,000 |
-| Peach | 5,800 |
-| Schweppes Can | 11,500 |
-| Hollandia | 16,500 |
-| Exotic | 14,500 |
-| Lacasera | 4,200 |
-| Chapman | 2,700 |
-| Lacasera Small | 3,000 |
-| Predator | 5,300 |
-| Schweppes | 5,400 |
-| Maltina Can | 13,000 |
-| Sprite | 5,000 |
-| Yugo | 7,000 |
-| 5Alive Big & Small | 6,000 |
+Each product has an original, replaceable SVG illustration in
+`public/assets/products/`, named for its category and product. These artwork
+assets are locally served placeholders, not third-party product photographs;
+they can be replaced with authorized product photos from Admin.
 
 The Admin product editor now supports:
 - Farashin guda (unit price)
