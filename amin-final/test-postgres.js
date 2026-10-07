@@ -22,7 +22,7 @@ const requiredTables = [
   'annual_award_winners', 'annual_award_config', 'coupons', 'videos'
 ];
 
-async function verifyStoreEndpoints(productId, migratedCategoryId) {
+async function verifyStoreEndpoints(productId, migratedCategoryId, db, checkoutPhone) {
   const portServer = net.createServer();
   await new Promise((resolve, reject) => {
     portServer.once('error', reject);
@@ -83,6 +83,43 @@ async function verifyStoreEndpoints(productId, migratedCategoryId) {
     const videos = await videosResponse.json();
     assert.ok(videos.items.some(video => video.product_id === productId), '/api/videos supports the typed product filter');
     console.log('PASS PostgreSQL-backed products, featured products, categories and videos endpoints');
+
+    const createCheckoutOrder = async customer => {
+      const response = await fetch(`${base}/api/orders`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          customer: { ...customer, phone: checkoutPhone },
+          address: '12 Checkout Street',
+          state: 'Lagos',
+          city: 'Ikeja',
+          items: [{ id: productId, qty: 1 }]
+        })
+      });
+      const order = await response.json();
+      assert.equal(response.status, 200, `PostgreSQL checkout order creation failed: ${JSON.stringify(order)}`);
+      assert.match(order.no, /^ORD-[A-F0-9]+$/);
+      assert.equal(order.subtotal, 1000);
+      assert.equal(order.total, order.subtotal + order.fee - order.discount);
+      return order;
+    };
+    const firstOrder = await createCheckoutOrder({ name: 'Checkout Customer', email: 'checkout@example.test' });
+    let customer = await db.get('SELECT id,name,email FROM customers WHERE phone=?', checkoutPhone);
+    assert.equal(customer.name, 'Checkout Customer', 'PostgreSQL checkout creates the customer');
+    assert.equal(customer.email, 'checkout@example.test', 'PostgreSQL checkout saves the initial email');
+    const updatedOrder = await createCheckoutOrder({ name: 'Updated Checkout Customer', email: 'updated-checkout@example.test' });
+    customer = await db.get('SELECT id,name,email FROM customers WHERE phone=?', checkoutPhone);
+    assert.equal(customer.name, 'Updated Checkout Customer', 'PostgreSQL checkout updates the customer name');
+    assert.equal(customer.email, 'updated-checkout@example.test', 'PostgreSQL checkout updates a supplied email');
+    const preservedOrder = await createCheckoutOrder({ name: 'Checkout Customer Without Email' });
+    customer = await db.get('SELECT id,name,email FROM customers WHERE phone=?', checkoutPhone);
+    assert.equal(customer.name, 'Checkout Customer Without Email', 'PostgreSQL checkout updates the customer name without an email');
+    assert.equal(customer.email, 'updated-checkout@example.test', 'PostgreSQL checkout preserves the saved email when omitted');
+    assert.equal(new Set([firstOrder.no, updatedOrder.no, preservedOrder.no]).size, 3, 'PostgreSQL checkout persists three distinct orders');
+    const checkout = await db.get(`SELECT COUNT(*)::integer AS order_count,COUNT(oi.id)::integer AS item_count
+      FROM orders o LEFT JOIN order_items oi ON oi.order_id=o.id WHERE o.customer_id=?`, customer.id);
+    assert.deepEqual(checkout, { order_count: 3, item_count: 3 }, 'PostgreSQL checkout persists all order items');
+    console.log('PASS PostgreSQL checkout creates orders and updates/preserves customer email');
   } finally {
     const stopped = child.exitCode !== null || child.signalCode !== null
       ? Promise.resolve()
@@ -156,6 +193,7 @@ function makeSource(sourcePath, baseId, changedAdmin = false) {
   const conflictPath = path.join(work, 'conflict.db');
   const baseId = 1_000_000_000 + crypto.randomInt(0, 500_000_000);
   const adminId = baseId, categoryId = baseId + 2, productId = baseId + 3, customerId = baseId + 4, orderId = baseId + 5;
+  const checkoutPhone = `080${String(baseId).slice(-8)}`;
   let db;
   process.env.DATABASE_URL = process.env.DATABASE_URL_TEST;
   try {
@@ -238,7 +276,7 @@ function makeSource(sourcePath, baseId, changedAdmin = false) {
       awardYear, 'award year extraction runs on PostgreSQL');
     assert.equal((await db.get('SELECT id FROM products WHERE id=? AND ((active=1 AND category_id IS NOT NULL) OR CAST(? AS INTEGER)=1)', productId, 0)).id,
       productId, 'image visibility predicate runs with typed PostgreSQL parameters');
-    await verifyStoreEndpoints(productId, categoryId + 100);
+    await verifyStoreEndpoints(productId, categoryId + 100, db, checkoutPhone);
 
     result = await migrateSQLiteToPostgres({ sourcePath, destination: db, dryRun: false });
     assert.ok(result.every(row => row.insertedRows === 0), 'repeat import creates no duplicates');
@@ -255,6 +293,10 @@ function makeSource(sourcePath, baseId, changedAdmin = false) {
     console.log('PASS isolated PostgreSQL schema/data migration, dry-run, validation, repeat import and conflict protection');
   } finally {
     if (db) {
+      await db.run('DELETE FROM order_events WHERE order_id IN (SELECT id FROM orders WHERE customer_id IN (SELECT id FROM customers WHERE phone=?))', checkoutPhone);
+      await db.run('DELETE FROM order_items WHERE order_id IN (SELECT id FROM orders WHERE customer_id IN (SELECT id FROM customers WHERE phone=?))', checkoutPhone);
+      await db.run('DELETE FROM orders WHERE customer_id IN (SELECT id FROM customers WHERE phone=?)', checkoutPhone);
+      await db.run('DELETE FROM customers WHERE phone=?', checkoutPhone);
       await db.run('DELETE FROM sessions WHERE token_hash LIKE ?', `active-token-hash-${baseId}%`);
       await db.run('DELETE FROM videos WHERE id=?', baseId + 9);
       await db.run('DELETE FROM order_events WHERE id=?', baseId + 8);

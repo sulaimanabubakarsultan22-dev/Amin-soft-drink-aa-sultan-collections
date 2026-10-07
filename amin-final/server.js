@@ -113,7 +113,7 @@ async function createOrder(b, idem) {
       if (!coupon) throw new Err(400, 'Coupon code is invalid or inactive');
       discount = Math.floor(sub * coupon.percent / 100);
     }
-    const cid = (await db.prepare(`INSERT INTO customers(name,phone,email,created) VALUES(?,?,?,?) ON CONFLICT(phone) DO UPDATE SET name=excluded.name,email=COALESCE(excluded.email,email) RETURNING id`).get(name, phone, email, now())).id;
+    const cid = (await db.prepare(`INSERT INTO customers(name,phone,email,created) VALUES(?,?,?,?) ON CONFLICT(phone) DO UPDATE SET name=excluded.name,email=COALESCE(excluded.email,customers.email) RETURNING id`).get(name, phone, email, now())).id;
     const no = 'ORD-' + crypto.randomBytes(4).toString('hex').toUpperCase();
     const oid = (await db.prepare('INSERT INTO orders(no,customer_id,address,state,city,notes,gps,subtotal,fee,total,discount,coupon_code,idem,created,updated) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?) RETURNING id').get(no, cid, addr, state, city, notes, gps, sub, fee, sub + fee - discount, discount, couponCode || null, idem || null, now(), now())).id;
     await ev(oid, 'Order placed'); notify('order.created', { no });
