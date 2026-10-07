@@ -22,7 +22,7 @@ const requiredTables = [
   'annual_award_winners', 'annual_award_config', 'coupons', 'videos'
 ];
 
-async function verifyStoreEndpoints(productId, filterCategoryId, migratedCategoryId) {
+async function verifyStoreEndpoints(productId, migratedCategoryId) {
   const portServer = net.createServer();
   await new Promise((resolve, reject) => {
     portServer.once('error', reject);
@@ -45,7 +45,7 @@ async function verifyStoreEndpoints(productId, filterCategoryId, migratedCategor
     for (let attempt = 0; attempt < 50; attempt++) {
       if (child.exitCode !== null) throw new Error(`PostgreSQL-backed server exited early:\n${output}`);
       try {
-        productsResponse = await fetch(`${base}/api/products?cat=${filterCategoryId}`);
+        productsResponse = await fetch(`${base}/api/products?cat=${migratedCategoryId}`);
         if (productsResponse.ok) break;
         output += `\n/api/products returned HTTP ${productsResponse.status}`;
       } catch (error) {
@@ -53,11 +53,25 @@ async function verifyStoreEndpoints(productId, filterCategoryId, migratedCategor
       }
       await new Promise(resolve => setTimeout(resolve, 100));
     }
-    assert.ok(productsResponse?.ok, `PostgreSQL-backed /api/products did not respond successfully:\n${output}`);
+    assert.equal(productsResponse?.status, 200, `PostgreSQL-backed /api/products did not respond successfully:\n${output}`);
     const products = await productsResponse.json();
     assert.ok(Array.isArray(products.items), '/api/products returns an items array');
+    assert.ok(products.items.some(product => product.id === productId), '/api/products returns the migrated product');
+    const listedProduct = products.items.find(product => product.id === productId);
+    assert.match(listedProduct.image_front, new RegExp(`^/imgfront/${productId}\\?v=`),
+      '/api/products preserves the image cache-busting ?v= URL on PostgreSQL');
+    assert.match(listedProduct.image_back, new RegExp(`^/imgback/${productId}\\?v=`),
+      '/api/products preserves the image cache-busting ?v= URL on PostgreSQL');
     assert.ok(Array.isArray(products.cats), '/api/products returns categories for the storefront');
-    assert.ok(products.cats.some(category => category.id === filterCategoryId), '/api/products returns active categories for the storefront');
+    assert.ok(products.cats.some(category => category.id === migratedCategoryId), '/api/products returns active categories for the storefront');
+
+    const featuredResponse = await fetch(`${base}/api/featured`);
+    assert.equal(featuredResponse.status, 200, '/api/featured responds successfully on PostgreSQL');
+    const featured = await featuredResponse.json();
+    const featuredProduct = featured.items.find(product => product.id === productId);
+    assert.ok(featuredProduct, '/api/featured returns the migrated featured product');
+    assert.match(featuredProduct.image_front, new RegExp(`^/imgfront/${productId}\\?v=`),
+      '/api/featured preserves the image cache-busting ?v= URL on PostgreSQL');
 
     const categoriesResponse = await fetch(`${base}/api/categories`);
     assert.equal(categoriesResponse.status, 200, '/api/categories responds successfully on PostgreSQL');
@@ -68,7 +82,7 @@ async function verifyStoreEndpoints(productId, filterCategoryId, migratedCategor
     assert.equal(videosResponse.status, 200, '/api/videos responds successfully on PostgreSQL');
     const videos = await videosResponse.json();
     assert.ok(videos.items.some(video => video.product_id === productId), '/api/videos supports the typed product filter');
-    console.log('PASS PostgreSQL-backed products, categories and videos endpoints');
+    console.log('PASS PostgreSQL-backed products, featured products, categories and videos endpoints');
   } finally {
     const stopped = child.exitCode !== null || child.signalCode !== null
       ? Promise.resolve()
@@ -224,7 +238,7 @@ function makeSource(sourcePath, baseId, changedAdmin = false) {
       awardYear, 'award year extraction runs on PostgreSQL');
     assert.equal((await db.get('SELECT id FROM products WHERE id=? AND ((active=1 AND category_id IS NOT NULL) OR CAST(? AS INTEGER)=1)', productId, 0)).id,
       productId, 'image visibility predicate runs with typed PostgreSQL parameters');
-    await verifyStoreEndpoints(productId, categoryId, categoryId + 100);
+    await verifyStoreEndpoints(productId, categoryId + 100);
 
     result = await migrateSQLiteToPostgres({ sourcePath, destination: db, dryRun: false });
     assert.ok(result.every(row => row.insertedRows === 0), 'repeat import creates no duplicates');

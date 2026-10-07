@@ -27,6 +27,14 @@ const expectedTables = [
       'INSERT INTO settings(k,v) VALUES($1,$2) ON CONFLICT(k) DO UPDATE SET v=excluded.v'
     );
     assert.equal(
+      translatePostgresSql("SELECT '/imgfront/'||id||'?v='||updated FROM products"),
+      "SELECT '/imgfront/'||id||'?v='||updated FROM products"
+    );
+    assert.equal(
+      translatePostgresSql("SELECT '/imgfront/'||id||'?v='||updated FROM products WHERE id=? AND name=?"),
+      "SELECT '/imgfront/'||id||'?v='||updated FROM products WHERE id=$1 AND name=$2"
+    );
+    assert.equal(
       translatePostgresSql('SELECT datetime(verified)>=datetime(?) FROM payments'),
       'SELECT CAST(verified AS timestamptz)>=CAST($1 AS timestamptz) FROM payments'
     );

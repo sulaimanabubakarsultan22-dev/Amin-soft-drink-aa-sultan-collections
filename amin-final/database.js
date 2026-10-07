@@ -69,8 +69,45 @@ function migrateSQLite(db) {
 function translatePostgresSql(sql) {
   let index = 0;
   const ignoreConflict = /^\s*INSERT\s+OR\s+IGNORE\s+INTO/i.test(sql);
-  let translated = sql
-    .replace(/\?/g, () => `$${++index}`)
+  let translated = '';
+  let quote;
+  let lineComment = false;
+  let blockComment = false;
+  for (let i = 0; i < sql.length; i++) {
+    const character = sql[i], next = sql[i + 1];
+    if (lineComment) {
+      translated += character;
+      if (character === '\n') lineComment = false;
+    } else if (blockComment) {
+      translated += character;
+      if (character === '*' && next === '/') {
+        translated += next;
+        i++;
+        blockComment = false;
+      }
+    } else if (quote) {
+      translated += character;
+      if (character === quote) {
+        if (next === quote) {
+          translated += next;
+          i++;
+        } else {
+          quote = undefined;
+        }
+      }
+    } else if ((character === '-' && next === '-') || (character === '/' && next === '*')) {
+      translated += character + next;
+      i++;
+      lineComment = character === '-';
+      blockComment = character === '/';
+    } else if (character === "'" || character === '"' || character === '`' || character === '[') {
+      quote = character === '[' ? ']' : character;
+      translated += character;
+    } else {
+      translated += character === '?' ? `$${++index}` : character;
+    }
+  }
+  translated = translated
     .replace(/\bdatetime\(([^)]+)\)/gi, 'CAST($1 AS timestamptz)')
     .replace(/strftime\('%Y',\s*verified,\s*'\+01:00'\)/gi, "TO_CHAR((CAST(verified AS timestamptz) AT TIME ZONE 'Africa/Lagos'), 'YYYY')")
     .replace(/INSERT\s+OR\s+IGNORE\s+INTO/gi, 'INSERT INTO');
