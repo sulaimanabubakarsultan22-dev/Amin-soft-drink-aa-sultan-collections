@@ -51,7 +51,7 @@ async function main() {
     }
   } catch (error) {
     if (error instanceof MigrationError && error.table) {
-      console.error(`Migration stopped at table ${error.table}. No source values or credentials were logged.`);
+      console.error(`Migration stopped at table ${error.table}: ${error.message}. No source values or credentials were logged.`);
     } else if (error instanceof MigrationError) {
       console.error(`${error.message}. No source values or credentials were logged.`);
     } else {

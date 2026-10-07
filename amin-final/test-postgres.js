@@ -83,7 +83,7 @@ function makeSource(sourcePath, baseId, changedAdmin = false) {
   const sourcePath = path.join(work, 'source.db');
   const conflictPath = path.join(work, 'conflict.db');
   const baseId = 1_000_000_000 + crypto.randomInt(0, 500_000_000);
-  const adminId = baseId, productId = baseId + 3, customerId = baseId + 4, orderId = baseId + 5;
+  const adminId = baseId, categoryId = baseId + 2, productId = baseId + 3, customerId = baseId + 4, orderId = baseId + 5;
   let db;
   process.env.DATABASE_URL = process.env.DATABASE_URL_TEST;
   try {
@@ -93,23 +93,46 @@ function makeSource(sourcePath, baseId, changedAdmin = false) {
     for (const table of [...requiredTables, 'schema_migrations']) assert.ok(tables.has(table), `missing PostgreSQL table ${table}`);
     assert.ok((await db.all("SELECT column_name FROM information_schema.columns WHERE table_name='products'")).some(row => row.column_name === 'category_id'), 'products.category_id relationship exists');
     assert.equal((await db.get("SELECT COUNT(*)::integer AS count FROM schema_migrations WHERE version='001-initial'")).count, 1, 'repeat PostgreSQL migration is idempotent');
+    await db.run('INSERT INTO admins(id,name,email,hash,role,created,active) VALUES(?,?,?,?,?,?,1)',
+      adminId, 'Existing Destination Admin', `destination-${baseId}@example.test`, `destination-hash-${baseId}`, 'owner', new Date().toISOString());
+    await db.run('INSERT INTO categories(id,name,active) VALUES(?,?,1)', categoryId, `Unrelated category ${baseId}`);
+    await db.run('INSERT INTO categories(id,name,active) VALUES(?,?,0)', categoryId + 100, `Migration category ${baseId}`);
     makeSource(sourcePath, baseId);
 
     let result = await migrateSQLiteToPostgres({ sourcePath, destination: db, dryRun: true });
     assert.equal(result.find(row => row.table === 'sessions').sourceRows, 1, 'only unexpired active-admin sessions are selected');
     assert.ok(result.find(row => row.table === 'annual_award_config').alreadyPresentRows === 0, 'bootstrap award configuration can be populated');
-    assert.equal(await db.get('SELECT id FROM admins WHERE id=?', adminId), undefined, 'dry-run does not write destination data');
+    assert.equal(result.find(row => row.table === 'categories').alreadyPresentRows, 1,
+      'dry-run recognizes the existing category by name despite a different ID');
+    assert.equal(await db.get('SELECT id FROM admins WHERE email=?', `migration-${baseId}@example.test`), undefined,
+      'dry-run does not write source admins to the destination');
+    assert.equal(await db.get('SELECT id FROM products WHERE sku=?', `MIG-${baseId}`), undefined,
+      'dry-run does not write products to the destination');
+    assert.equal((await db.get('SELECT name FROM admins WHERE id=?', adminId)).name, 'Existing Destination Admin',
+      'dry-run leaves the conflicting destination admin unchanged');
 
     result = await migrateSQLiteToPostgres({ sourcePath, destination: db, dryRun: false });
-    assert.ok(result.every(row => row.insertedRows === row.sourceRows), 'first import writes each source row once');
-    assert.equal((await db.get('SELECT category_id FROM products WHERE id=?', productId)).category_id, baseId + 2);
+    assert.ok(result.filter(row => row.table !== 'categories').every(row => row.insertedRows === row.sourceRows),
+      'first import writes each new source row once');
+    assert.equal(result.find(row => row.table === 'categories').insertedRows, 0,
+      'existing PostgreSQL categories are preserved rather than duplicated');
+    assert.equal(result.find(row => row.table === 'categories').alreadyPresentRows, 1);
+    assert.equal((await db.get('SELECT name FROM admins WHERE id=?', adminId)).name, 'Existing Destination Admin',
+      'a legitimate destination admin is never overwritten');
+    const importedAdmin = await db.get('SELECT id,name FROM admins WHERE email=?', `migration-${baseId}@example.test`);
+    assert.ok(importedAdmin.id !== adminId, 'a conflicting source admin receives a distinct destination identity');
+    assert.equal(importedAdmin.name, 'Test Admin');
+    assert.equal((await db.get('SELECT staff_id FROM videos WHERE id=?', baseId + 9)).staff_id, importedAdmin.id,
+      'video staff references follow the remapped source admin');
+    assert.equal((await db.get('SELECT category_id FROM products WHERE id=?', productId)).category_id, categoryId + 100,
+      'product category references follow the existing PostgreSQL category ID');
     assert.equal((await db.get('SELECT image FROM products WHERE id=?', productId)).image, '/assets/products/drinks/test-product.svg');
     assert.equal((await db.get('SELECT image_front FROM products WHERE id=?', productId)).image_front, 'data:image/png;base64,test-front');
     assert.equal((await db.get('SELECT pay_status,status FROM orders WHERE id=?', orderId)).pay_status, 'paid');
     assert.equal((await db.get('SELECT product_id FROM order_items WHERE order_id=?', orderId)).product_id, productId);
     assert.equal((await db.get('SELECT status FROM payments WHERE order_id=?', orderId)).status, 'paid');
     assert.equal((await db.get('SELECT reward FROM annual_award_config WHERE id=1')).reward, `Test reward ${baseId}`);
-    assert.equal((await db.get('SELECT COUNT(*)::integer AS count FROM sessions WHERE admin_id=?', adminId)).count, 1);
+    assert.equal((await db.get('SELECT COUNT(*)::integer AS count FROM sessions WHERE admin_id=?', importedAdmin.id)).count, 1);
     assert.equal((await db.get('SELECT COUNT(*)::integer AS count FROM sessions WHERE token_hash LIKE ?', `expired-token-hash-${baseId}`)).count, 0);
 
     result = await migrateSQLiteToPostgres({ sourcePath, destination: db, dryRun: false });
@@ -118,15 +141,16 @@ function makeSource(sourcePath, baseId, changedAdmin = false) {
     const conflictSource = new (require('node:sqlite').DatabaseSync)(conflictPath);
     conflictSource.prepare('UPDATE admins SET name=? WHERE id=?').run('Conflicting admin name', adminId);
     conflictSource.close();
-    await assert.rejects(
-      migrateSQLiteToPostgres({ sourcePath: conflictPath, destination: db, dryRun: false }),
-      error => error.name === 'MigrationError' && error.table === 'admins'
-    );
-    assert.equal((await db.get('SELECT name FROM admins WHERE id=?', adminId)).name, 'Test Admin', 'conflict does not overwrite destination data');
+    result = await migrateSQLiteToPostgres({ sourcePath: conflictPath, destination: db, dryRun: false });
+    assert.ok(result.every(row => row.insertedRows === 0), 'repeat import does not duplicate or overwrite admins');
+    assert.equal((await db.get('SELECT name FROM admins WHERE id=?', importedAdmin.id)).name, 'Test Admin',
+      're-import preserves the already-migrated destination admin');
+    assert.equal((await db.get('SELECT name FROM admins WHERE id=?', adminId)).name, 'Existing Destination Admin',
+      'conflict does not overwrite destination data');
     console.log('PASS isolated PostgreSQL schema/data migration, dry-run, validation, repeat import and conflict protection');
   } finally {
     if (db) {
-      await db.run('DELETE FROM sessions WHERE admin_id=?', adminId);
+      await db.run('DELETE FROM sessions WHERE token_hash LIKE ?', `active-token-hash-${baseId}%`);
       await db.run('DELETE FROM videos WHERE id=?', baseId + 9);
       await db.run('DELETE FROM order_events WHERE id=?', baseId + 8);
       await db.run('DELETE FROM payments WHERE id=?', baseId + 7);
@@ -138,9 +162,9 @@ function makeSource(sourcePath, baseId, changedAdmin = false) {
       await db.run('DELETE FROM settings WHERE k=?', `migration.${baseId}`);
       await db.run('DELETE FROM coupons WHERE code=?', `MIG-${baseId}`);
       await db.run('DELETE FROM products WHERE id=?', productId);
-      await db.run('DELETE FROM categories WHERE id=?', baseId + 2);
+      await db.run('DELETE FROM categories WHERE id IN (?,?)', categoryId, categoryId + 100);
       await db.run('DELETE FROM customers WHERE id=?', customerId);
-      await db.run('DELETE FROM admins WHERE id IN (?,?)', adminId, adminId + 1);
+      await db.run('DELETE FROM admins WHERE id IN (?,?) OR email=?', adminId, adminId + 1, `migration-${baseId}@example.test`);
       await db.close();
     }
     fs.rmSync(work, { recursive: true, force: true });

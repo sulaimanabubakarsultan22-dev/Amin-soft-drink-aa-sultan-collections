@@ -37,6 +37,24 @@ const OPTIONAL_TABLES = new Set(['annual_award_winners', 'annual_award_config', 
 const SOURCE_DEFAULTS = {
   orders: { discount: '0', coupon_code: 'NULL' }
 };
+const IDENTITY_KEYS = {
+  admins: [['email']],
+  categories: [['name']],
+  customers: [['phone']],
+  products: [['sku'], ['name', 'category']]
+};
+const REFERENCES = [
+  ['sessions', 'admin_id', 'admins'],
+  ['products', 'category_id', 'categories'],
+  ['orders', 'customer_id', 'customers'],
+  ['order_items', 'order_id', 'orders'],
+  ['order_items', 'product_id', 'products'],
+  ['payments', 'order_id', 'orders'],
+  ['order_events', 'order_id', 'orders'],
+  ['annual_award_winners', 'customer_id', 'customers'],
+  ['videos', 'product_id', 'products'],
+  ['videos', 'staff_id', 'admins']
+];
 
 class MigrationError extends Error {
   constructor(message, table) {
@@ -109,7 +127,7 @@ function valuesMatch(left, right, columns) {
 }
 
 async function preflightTable(sourceRowsForTable, table, destination) {
-  const conflicts = [];
+  const conflicts = new Set();
   let notPresent = 0;
   for (const sourceRow of sourceRowsForTable) {
     const keyParams = table.key.map(column => sourceRow[column]);
@@ -120,7 +138,7 @@ async function preflightTable(sourceRowsForTable, table, destination) {
     if (found) {
       const bootstrapAwardConfig = table.name === 'annual_award_config' &&
         sourceRow.id === 1 && found.id === 1 && found.reward === '';
-      if (!valuesMatch(sourceRow, found, table.columns) && !bootstrapAwardConfig) conflicts.push('primary key');
+      if (!valuesMatch(sourceRow, found, table.columns) && !bootstrapAwardConfig) conflicts.add('primary key');
       else if (bootstrapAwardConfig && sourceRow.reward !== found.reward) notPresent++;
       continue;
     }
@@ -132,13 +150,95 @@ async function preflightTable(sourceRowsForTable, table, destination) {
         ...uniqueKey.map(column => sourceRow[column])
       );
       if (alternate) {
-        conflicts.push('unique key');
+        conflicts.add('unique key');
         break;
       }
     }
   }
-  if (conflicts.length) throw new MigrationError('Destination contains conflicting records; no source data was overwritten', table.name);
+  if (conflicts.size) {
+    const conflictTypes = [...conflicts].join(' and ');
+    throw new MigrationError(`Destination contains conflicting ${conflictTypes} records; no source data was overwritten`, table.name);
+  }
   return notPresent;
+}
+
+async function planIdentityRows(rows, table, destination) {
+  const identityKeys = IDENTITY_KEYS[table.name];
+  if (!identityKeys) throw new Error(`No stable identity keys are defined for ${table.name}`);
+  const mappings = new Map();
+  const inserts = [];
+  let alreadyPresentRows = 0;
+  for (const row of rows) {
+    const selectedColumns = [...new Set(['id', ...table.columns])].map(column => `"${column}"`).join(',');
+    const byId = await destination.get(`SELECT ${selectedColumns} FROM "${table.name}" WHERE "id" IS NOT DISTINCT FROM ?`, row.id);
+    const logicalMatches = [];
+    for (const identityKey of identityKeys) {
+      if (identityKey.some(column => row[column] == null)) continue;
+      const matches = await destination.all(
+        `SELECT ${selectedColumns} FROM "${table.name}" WHERE ${keyWhere(identityKey)}`,
+        ...identityKey.map(column => row[column])
+      );
+      for (const match of matches) {
+        if (!logicalMatches.some(existing => existing.id === match.id)) logicalMatches.push(match);
+      }
+    }
+    if (logicalMatches.length > 1) {
+      throw new MigrationError('Destination contains ambiguous logical identity records; no source data was overwritten', table.name);
+    }
+    const logicalMatch = logicalMatches[0];
+    if (logicalMatch) {
+      mappings.set(row.id, logicalMatch.id);
+      alreadyPresentRows++;
+    } else if (byId && valuesMatch(row, byId, table.columns)) {
+      mappings.set(row.id, row.id);
+      alreadyPresentRows++;
+    } else if (byId) {
+      mappings.set(row.id, null);
+      inserts.push({ row, remapId: true });
+    } else {
+      mappings.set(row.id, row.id);
+      inserts.push({ row, remapId: false });
+    }
+  }
+  return { mappings, inserts, alreadyPresentRows };
+}
+
+async function insertIdentityRows(plan, table, destination, transformRow = row => row) {
+  let inserted = 0;
+  for (const { row, remapId } of plan.inserts) {
+    const valuesRow = transformRow(row);
+    const columns = remapId ? table.columns.filter(column => column !== 'id') : table.columns;
+    const placeholders = columns.map((_, index) => `$${index + 1}`).join(',');
+    const sql = `INSERT INTO "${table.name}" (${columns.map(column => `"${column}"`).join(',')}) VALUES (${placeholders})${remapId ? ' RETURNING id' : ''}`;
+    const values = columns.map(column => valuesRow[column]);
+    if (remapId) {
+      const result = await destination.get(sql, ...values);
+      plan.mappings.set(row.id, result.id);
+    } else {
+      inserted += (await destination.run(sql, ...values)).changes;
+    }
+    if (remapId) inserted++;
+  }
+  return inserted;
+}
+
+function mapReferences(rows, table, mappings) {
+  const references = REFERENCES.filter(([childTable]) => childTable === table.name);
+  if (!references.length) return rows;
+  return rows.map(row => {
+    let mapped = row;
+    for (const [, column, parentTable] of references) {
+      const sourceId = row[column];
+      const parentMappings = mappings.get(parentTable);
+      if (sourceId == null || !parentMappings?.has(sourceId)) continue;
+      const destinationId = parentMappings.get(sourceId);
+      if (destinationId != null) {
+        if (mapped === row) mapped = { ...row };
+        mapped[column] = destinationId;
+      }
+    }
+    return mapped;
+  });
 }
 
 async function insertRows(rows, table, destination) {
@@ -198,8 +298,23 @@ async function migrateSQLiteToPostgres({ sourcePath, destination, dryRun = true,
     const plans = TABLES.map(table => ({ table, rows: sourceRows(source, table, now) }));
     const run = async () => {
       await validatePlannedRelationships(plans, destination);
+      const identityPlans = new Map();
+      const mappings = new Map();
+      for (const tableName of Object.keys(IDENTITY_KEYS)) {
+        const sourcePlan = plans.find(plan => plan.table.name === tableName);
+        const identityPlan = await planIdentityRows(sourcePlan.rows, sourcePlan.table, destination);
+        identityPlans.set(tableName, identityPlan);
+        mappings.set(tableName, identityPlan.mappings);
+      }
       const existingByTable = new Map();
-      for (const { table, rows } of plans) existingByTable.set(table.name, await preflightTable(rows, table, destination));
+      for (const { table, rows } of plans) {
+        if (identityPlans.has(table.name)) {
+          existingByTable.set(table.name, rows.length - identityPlans.get(table.name).alreadyPresentRows);
+          continue;
+        }
+        const mappedRows = mapReferences(rows, table, mappings);
+        existingByTable.set(table.name, await preflightTable(mappedRows, table, destination));
+      }
       if (dryRun) {
         await validateRelationships(destination);
         return plans.map(({ table, rows }) => ({
@@ -210,8 +325,30 @@ async function migrateSQLiteToPostgres({ sourcePath, destination, dryRun = true,
         }));
       }
       const insertedByTable = new Map();
-      for (const { table, rows } of plans) insertedByTable.set(table.name, await insertRows(rows, table, destination));
-      for (const { table, rows } of plans) await preflightTable(rows, table, destination);
+      for (const { table, rows } of plans) {
+        if (identityPlans.has(table.name)) {
+          const inserted = await insertIdentityRows(
+            identityPlans.get(table.name),
+            table,
+            destination,
+            row => mapReferences([row], table, mappings)[0]
+          );
+          insertedByTable.set(table.name, inserted);
+          continue;
+        }
+        insertedByTable.set(table.name, await insertRows(mapReferences(rows, table, mappings), table, destination));
+      }
+      for (const { table, rows } of plans) {
+        if (identityPlans.has(table.name)) {
+          for (const [sourceId, destinationId] of identityPlans.get(table.name).mappings) {
+            if (destinationId == null || !(await destination.get(`SELECT "id" FROM "${table.name}" WHERE "id"=?`, destinationId))) {
+              throw new MigrationError('Destination identity validation failed', table.name);
+            }
+          }
+          continue;
+        }
+        await preflightTable(mapReferences(rows, table, mappings), table, destination);
+      }
       await validateRelationships(destination);
       await syncSequences(destination);
       return plans.map(({ table, rows }) => ({
@@ -231,4 +368,4 @@ async function migrateSQLiteToPostgres({ sourcePath, destination, dryRun = true,
   }
 }
 
-module.exports = { TABLES, MigrationError, assertKnownTables, migrateSQLiteToPostgres, openSQLiteSource, sourceRows, validateRelationships };
+module.exports = { TABLES, MigrationError, assertKnownTables, insertIdentityRows, mapReferences, migrateSQLiteToPostgres, openSQLiteSource, planIdentityRows, preflightTable, sourceRows, validateRelationships };
