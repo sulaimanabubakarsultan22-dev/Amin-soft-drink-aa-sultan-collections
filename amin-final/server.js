@@ -175,6 +175,15 @@ async function backup() {
 const CV = '(category_id IS NULL OR category_id IN (SELECT id FROM categories WHERE active=1))';
 const IMG = /^data:image\/(jpeg|png|webp);base64,[A-Za-z0-9+/=]+$/;
 const PRODUCT_ART = /^\/assets\/products\/[a-z0-9-]+\/[a-z0-9-]+\.svg$/;
+const validProductPhoto = value => {
+  const match = IMG.exec(value || '');
+  if (!match) return false;
+  const encoded = value.slice(value.indexOf(',') + 1), bytes = Buffer.from(encoded, 'base64');
+  if (!bytes.length || bytes.length > 700e3 || bytes.toString('base64') !== encoded) return false;
+  if (match[1] === 'jpeg') return bytes.length >= 3 && bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff;
+  if (match[1] === 'png') return bytes.length >= 8 && bytes.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]));
+  return bytes.length >= 12 && bytes.subarray(0, 4).toString() === 'RIFF' && bytes.subarray(8, 12).toString() === 'WEBP';
+};
 async function prodFields(b) {
   const price = int(b.price, 1, 1e9, 'Unit price'), discount = b.discount ? int(b.discount, 0, 1e9, 'Discount') : 0;
   const carton_price = b.carton_price === '' || b.carton_price == null ? null : int(b.carton_price, 1, 1e9, 'Carton price');
@@ -185,14 +194,11 @@ async function prodFields(b) {
   const video_url = b.video_url ? String(b.video_url).trim().slice(0, 500) : null;
   const featured = b.featured ? 1 : 0;
   if (discount >= price && discount) throw new Err(400, 'Discount must be lower than price');
-  const validMedia = v => { if (!v) return true; const m = IMG.exec(v), buf = m && Buffer.from(v.slice(v.indexOf(',') + 1), 'base64'); const ok = buf && buf.length <= 700e3 && ((m[1] === 'jpeg' && buf[0] === 0xff && buf[1] === 0xd8 && buf[2] === 0xff) || (m[1] === 'png' && buf.subarray(0, 4).equals(Buffer.from([0x89,0x50,0x4e,0x47]))) || (m[1] === 'webp' && buf.subarray(0,4).toString()==='RIFF' && buf.subarray(8,12).toString()==='WEBP')); return !!ok; };
   if (b.image && PRODUCT_ART.test(b.image)) {
     if (!fs.existsSync(path.join(__dirname, 'public', b.image.slice(1)))) throw new Err(400, 'Product illustration was not found');
-  } else if (b.image) { const m = IMG.exec(b.image), buf = m && Buffer.from(b.image.slice(b.image.indexOf(',') + 1), 'base64');
-    const ok = buf && buf.length <= 700e3 && ((m[1] === 'jpeg' && buf[0] === 0xff && buf[1] === 0xd8 && buf[2] === 0xff) || (m[1] === 'png' && buf.subarray(0, 4).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47]))) || (m[1] === 'webp' && buf.subarray(0, 4).toString() === 'RIFF' && buf.subarray(8, 12).toString() === 'WEBP'));
-    if (!ok) throw new Err(400, 'Image must be a real JPG, PNG or WebP under 700KB'); }
-  if (b.image_front && !validMedia(b.image_front)) throw new Err(400, 'Front image must be a real JPG, PNG or WebP under 700KB');
-  if (b.image_back && !validMedia(b.image_back)) throw new Err(400, 'Back image must be a real JPG, PNG or WebP under 700KB');
+  } else if (b.image && !validProductPhoto(b.image)) throw new Err(400, 'Image must be a real JPG, PNG or WebP under 700KB');
+  if (b.image_front && !validProductPhoto(b.image_front)) throw new Err(400, 'Front image must be a real JPG, PNG or WebP under 700KB');
+  if (b.image_back && !validProductPhoto(b.image_back)) throw new Err(400, 'Back image must be a real JPG, PNG or WebP under 700KB');
   if (video_url && !/^https?:\/\//i.test(video_url)) throw new Err(400, 'Video URL must start with https://');
   let cid = null, cname = '';
   if (b.category_id) { cid = int(b.category_id, 1, 1e9, 'Category'); const c = await db.prepare('SELECT name FROM categories WHERE id=?').get(cid); if (!c) throw new Err(400, 'Category does not exist'); cname = c.name; }
