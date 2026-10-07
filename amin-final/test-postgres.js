@@ -89,6 +89,18 @@ function makeSource(sourcePath, baseId, changedAdmin = false) {
   try {
     db = await createDatabase();
     assert.equal(db.type, 'postgres');
+    const typedParameters = await db.get(`SELECT CAST(? AS INTEGER)=0 AS no_category_filter,
+      CAST(? AS INTEGER)=0 AS no_stock_filter,CAST(? AS TEXT)='' AS no_pay_filter,
+      CAST(? AS TEXT)='' AS no_status_filter,CAST(? AS INTEGER) AS offset_value,
+      CAST(? AS INTEGER) AS limit_value`, 0, 0, '', '', 0, 24);
+    assert.deepEqual(typedParameters, {
+      no_category_filter: true,
+      no_stock_filter: true,
+      no_pay_filter: true,
+      no_status_filter: true,
+      offset_value: 0,
+      limit_value: 24
+    }, 'optional filters and pagination bind explicitly typed PostgreSQL parameters');
     const tables = new Set((await db.all("SELECT table_name FROM information_schema.tables WHERE table_schema=current_schema()")).map(row => row.table_name));
     for (const table of [...requiredTables, 'schema_migrations']) assert.ok(tables.has(table), `missing PostgreSQL table ${table}`);
     assert.ok((await db.all("SELECT column_name FROM information_schema.columns WHERE table_name='products'")).some(row => row.column_name === 'category_id'), 'products.category_id relationship exists');

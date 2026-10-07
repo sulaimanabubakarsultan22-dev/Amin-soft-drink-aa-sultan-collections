@@ -30,6 +30,18 @@ const expectedTables = [
       translatePostgresSql('SELECT datetime(verified)>=datetime(?) FROM payments'),
       'SELECT CAST(verified AS timestamptz)>=CAST($1 AS timestamptz) FROM payments'
     );
+    assert.equal(
+      translatePostgresSql('SELECT CAST(? AS INTEGER)=0 OR category_id=CAST(? AS INTEGER)'),
+      'SELECT CAST($1 AS INTEGER)=0 OR category_id=CAST($2 AS INTEGER)'
+    );
+    assert.equal(
+      translatePostgresSql("SELECT CAST(? AS TEXT)='' OR status=CAST(? AS TEXT)"),
+      "SELECT CAST($1 AS TEXT)='' OR status=CAST($2 AS TEXT)"
+    );
+    assert.equal(
+      translatePostgresSql('SELECT id FROM products ORDER BY lower(name)=lower(CAST(? AS TEXT)) LIMIT 24 OFFSET CAST(? AS INTEGER)'),
+      'SELECT id FROM products ORDER BY lower(name)=lower(CAST($1 AS TEXT)) LIMIT 24 OFFSET CAST($2 AS INTEGER)'
+    );
     assert.match(
       translatePostgresSql("SELECT MIN(CAST(strftime('%Y',verified,'+01:00') AS INTEGER)) year FROM payments"),
       /Africa\/Lagos/
@@ -40,6 +52,7 @@ const expectedTables = [
     const tables = (await db.all("SELECT name FROM sqlite_master WHERE type='table'")).map(row => row.name);
     for (const table of expectedTables) assert.ok(tables.includes(table), `missing migrated table ${table}`);
     assert.ok((await db.all('PRAGMA foreign_key_list(orders)')).some(row => row.table === 'customers'), 'orders.customer_id relationship exists');
+    assert.equal((await db.get('SELECT CAST(? AS INTEGER)=0 enabled', 0)).enabled, 1, 'explicit parameter casts remain SQLite-compatible');
     await db.run('INSERT INTO categories(name) VALUES(?)', 'Migration test category');
     const inserted = await db.get('SELECT id FROM categories WHERE name=?', 'Migration test category');
     await db.close();

@@ -55,7 +55,7 @@ async function awardRanks(year, limit = 10) {
     FROM orders o JOIN customers c ON c.id=o.customer_id
     JOIN (SELECT order_id,MIN(verified) paid_at FROM payments WHERE status='paid' AND verified IS NOT NULL GROUP BY order_id) paid ON paid.order_id=o.id
     WHERE o.pay_status='paid' AND o.status NOT IN ('cancelled','refunded') AND datetime(paid.paid_at)>=datetime(?) AND datetime(paid.paid_at)<datetime(?)
-    GROUP BY c.id ORDER BY spent DESC,paid_orders DESC,c.id ASC LIMIT ?`).all(from, to, limit);
+    GROUP BY c.id ORDER BY spent DESC,paid_orders DESC,c.id ASC LIMIT CAST(? AS INTEGER)`).all(from, to, limit);
 }
 async function archiveAwardsThrough(year) {
   const min = (await db.prepare("SELECT MIN(CAST(strftime('%Y',verified,'+01:00') AS INTEGER)) year FROM payments WHERE status='paid' AND verified IS NOT NULL").get()).year;
@@ -239,7 +239,7 @@ async function route(req, res, url, raw) {
   if ((r = /^\/api\/products\/(\d+)$/.exec(p)) && m === 'GET') { const x = await db.prepare(`SELECT id,name,sku,description,category,category_id,price,discount,carton_price,carton_qty,size,stock,colors,quality,video_url,featured,${IMGURL} AS image,CASE WHEN image_front IS NULL THEN NULL ELSE '/imgfront/'||id||'?v='||replace(replace(updated,':',''),'.','') END AS image_front,CASE WHEN image_back IS NULL THEN NULL ELSE '/imgback/'||id||'?v='||replace(replace(updated,':',''),'.','') END AS image_back FROM products WHERE id=? AND active=1 AND ${CV}`).get(+r[1]); if (!x) throw new Err(404, 'Product not found'); return x; }
   if (m === 'GET' && p === '/api/products') {
     const pg = Math.max(1, +q.get('page') || 1), s = '%' + (q.get('q') || '').replace(/[%_]/g, '') + '%', cat = +q.get('cat') || 0;
-    let w = 'active=1 AND ' + CV + " AND (name LIKE ? OR category LIKE ? OR sku LIKE ?) AND (?=0 OR category_id=?) AND (?=0 OR stock>0)";
+    let w = 'active=1 AND ' + CV + " AND (name LIKE ? OR category LIKE ? OR sku LIKE ?) AND (CAST(? AS INTEGER)=0 OR category_id=CAST(? AS INTEGER)) AND (CAST(? AS INTEGER)=0 OR stock>0)";
     const a = [s, s, s, cat, cat, q.get('instock') === '1' ? 1 : 0];
     const add = (sql, ...values) => { w += ' AND (' + sql + ')'; a.push(...values); };
     const minPrice = q.get('min_price') === null || q.get('min_price') === '' ? null : Number(q.get('min_price'));
@@ -251,7 +251,7 @@ async function route(req, res, url, raw) {
     if (q.get('offer') === '1') add('(discount>0 AND discount<price) OR (carton_price IS NOT NULL AND carton_qty>0 AND carton_price<price*carton_qty)');
     if (q.get('low_stock') === '1') add('stock BETWEEN 1 AND 5');
     const sort = {
-      relevance: (q.get('q') ? 'CASE WHEN lower(name)=lower(?) THEN 0 WHEN lower(name) LIKE lower(?) THEN 1 ELSE 2 END, ' : '') + 'featured DESC,created DESC,id DESC',
+      relevance: (q.get('q') ? 'CASE WHEN lower(name)=lower(CAST(? AS TEXT)) THEN 0 WHEN lower(name) LIKE lower(CAST(? AS TEXT)) THEN 1 ELSE 2 END, ' : '') + 'featured DESC,created DESC,id DESC',
       'best-selling': "(SELECT COALESCE(SUM(oi.qty*oi.pack_qty),0) FROM order_items oi JOIN orders o ON o.id=oi.order_id WHERE oi.product_id=products.id AND o.pay_status='paid' AND o.status NOT IN ('cancelled','refunded')) DESC,featured DESC,created DESC",
       newest: 'created DESC,id DESC',
       'price-low-high': 'CASE WHEN discount>0 AND discount<price THEN discount ELSE price END ASC,id DESC',
@@ -260,10 +260,10 @@ async function route(req, res, url, raw) {
     const orderArgs = q.get('sort') === 'relevance' && q.get('q') ? [q.get('q'), q.get('q') + '%'] : [];
     const select = `SELECT id,name,sku,description,category,category_id,price,discount,carton_price,carton_qty,size,colors,quality,video_url,featured,stock,${IMGURL} AS image,CASE WHEN image_front IS NULL THEN NULL ELSE '/imgfront/'||id||'?v='||replace(replace(updated,':',''),'.','') END AS image_front,CASE WHEN image_back IS NULL THEN NULL ELSE '/imgback/'||id||'?v='||replace(replace(updated,':',''),'.','') END AS image_back FROM products WHERE ${w}`;
     const all = [...a];
-    return { items: await db.prepare(`${select} ORDER BY ${sort} LIMIT 24 OFFSET ?`).all(...a, ...orderArgs, (pg - 1) * 24), total: (await db.prepare(`SELECT COUNT(*) n FROM products WHERE ${w}`).get(...all)).n, page: pg, cats: await db.prepare('SELECT id,name FROM categories WHERE active=1 ORDER BY name').all() };
+    return { items: await db.prepare(`${select} ORDER BY ${sort} LIMIT 24 OFFSET CAST(? AS INTEGER)`).all(...a, ...orderArgs, (pg - 1) * 24), total: (await db.prepare(`SELECT COUNT(*) n FROM products WHERE ${w}`).get(...all)).n, page: pg, cats: await db.prepare('SELECT id,name FROM categories WHERE active=1 ORDER BY name').all() };
   }
   if (m === 'GET' && p === '/api/featured') return {items: await db.prepare(`SELECT id,name,description,category,price,discount,carton_price,carton_qty,size,colors,quality,video_url,featured,stock,${IMGURL} AS image,CASE WHEN image_front IS NULL THEN NULL ELSE '/imgfront/'||id||'?v='||replace(replace(updated,':',''),'.','') END AS image_front,CASE WHEN image_back IS NULL THEN NULL ELSE '/imgback/'||id||'?v='||replace(replace(updated,':',''),'.','') END AS image_back FROM products WHERE active=1 AND featured=1 AND ` + CV + ` ORDER BY id DESC LIMIT 12`).all()};
-  if (m === 'GET' && p === '/api/videos') { const pid = +q.get('product') || 0; return { items: await db.prepare(`SELECT v.id,v.title,v.description,v.product_id,v.url,v.created,p.name product_name FROM videos v LEFT JOIN products p ON p.id=v.product_id WHERE v.active=1 AND (?=0 OR v.product_id=?) ORDER BY v.id DESC LIMIT 50`).all(pid,pid) }; }
+  if (m === 'GET' && p === '/api/videos') { const pid = +q.get('product') || 0; return { items: await db.prepare(`SELECT v.id,v.title,v.description,v.product_id,v.url,v.created,p.name product_name FROM videos v LEFT JOIN products p ON p.id=v.product_id WHERE v.active=1 AND (CAST(? AS INTEGER)=0 OR v.product_id=CAST(? AS INTEGER)) ORDER BY v.id DESC LIMIT 50`).all(pid,pid) }; }
   if (m === 'POST' && p === '/api/orders') { if (limited('o' + ipOf(req), 20, 36e5)) throw new Err(429, 'Too many orders, try later'); hit('o' + ipOf(req)); return createOrder(body(), String(req.headers['idempotency-key'] || '').slice(0, 64) || null); }
   if ((r = /^\/api\/orders\/(ORD-[A-F0-9]+)\/pay$/.exec(p)) && m === 'POST') {
     if (!PSK) throw new Err(503, 'Online payment is not configured yet');
@@ -385,7 +385,7 @@ async function route(req, res, url, raw) {
         if (m === 'POST' && rr[2]) { const tmp = crypto.randomBytes(9).toString('base64url'); await db.prepare('UPDATE admins SET hash=? WHERE id=?').run(hashPw(tmp), t.id); await db.prepare('DELETE FROM sessions WHERE admin_id=?').run(t.id); return { temp_password: tmp }; }
         if (m === 'PATCH') { const b = body(); if ('role' in b) { if (!['admin', 'staff', 'customer_care'].includes(b.role)) throw new Err(400, 'Invalid team role'); await db.prepare('UPDATE admins SET role=? WHERE id=?').run(b.role, t.id); } if ('active' in b) { await db.prepare('UPDATE admins SET active=? WHERE id=?').run(b.active ? 1 : 0, t.id); if (!b.active) await db.prepare('DELETE FROM sessions WHERE admin_id=?').run(t.id); } return { ok: true }; } }
     }
-    if (m === 'GET' && P === 'products') { await adminOf(req, ['owner','admin']); const pg = Math.max(1, +q.get('page') || 1); return { items: await db.prepare(`SELECT id,name,sku,description,category,category_id,price,discount,carton_price,carton_qty,size,colors,quality,video_url,featured,stock,active,${IMGURL} AS image,CASE WHEN image_front IS NULL THEN NULL ELSE '/imgfront/'||id||'?v='||replace(replace(updated,':',''),'.','') END AS image_front,CASE WHEN image_back IS NULL THEN NULL ELSE '/imgback/'||id||'?v='||replace(replace(updated,':',''),'.','') END AS image_back FROM products ORDER BY id DESC LIMIT 25 OFFSET ?`).all((pg - 1) * 25), total: (await db.prepare('SELECT COUNT(*) n FROM products').get()).n, page: pg }; }
+    if (m === 'GET' && P === 'products') { await adminOf(req, ['owner','admin']); const pg = Math.max(1, +q.get('page') || 1); return { items: await db.prepare(`SELECT id,name,sku,description,category,category_id,price,discount,carton_price,carton_qty,size,colors,quality,video_url,featured,stock,active,${IMGURL} AS image,CASE WHEN image_front IS NULL THEN NULL ELSE '/imgfront/'||id||'?v='||replace(replace(updated,':',''),'.','') END AS image_front,CASE WHEN image_back IS NULL THEN NULL ELSE '/imgback/'||id||'?v='||replace(replace(updated,':',''),'.','') END AS image_back FROM products ORDER BY id DESC LIMIT 25 OFFSET CAST(? AS INTEGER)`).all((pg - 1) * 25), total: (await db.prepare('SELECT COUNT(*) n FROM products').get()).n, page: pg }; }
     if (m === 'PUT' && P === 'settings') { await adminOf(req, ['owner', 'admin']); const b = body(), up = db.prepare('INSERT INTO settings(k,v) VALUES(?,?) ON CONFLICT(k) DO UPDATE SET v=excluded.v'); for (const k of Object.keys(DEF)) if (k in b) { let v = String(b[k] ?? '').trim().slice(0, 600); if (k === 'fee') v = String(int(v, 0, 1e6, 'Delivery fee')); if (['fb', 'ig', 'x', 'tt'].includes(k) && v && !/^https?:\/\//.test(v)) throw new Err(400, 'Social links must start with https://'); if (k === 'wa') v = v.replace(/\D/g, ''); await up.run(k, v); } return settings(); }
     if ((r = /^customers\/(\d+)\/orders$/.exec(P)) && m === 'GET') { await adminOf(req, ['owner','admin','customer_care']); const rows = await db.prepare('SELECT o.*,c.name customer,c.phone FROM orders o JOIN customers c ON c.id=o.customer_id WHERE c.id=? ORDER BY o.id DESC').all(+r[1]); return Promise.all(rows.map(orderView)); }
     if (P === 'awards' || P.startsWith('awards/')) {
@@ -436,7 +436,7 @@ async function route(req, res, url, raw) {
     }
     if (m === 'GET' && P === 'orders') { await adminOf(req, ['owner','admin','staff','customer_care']);
       const s = '%' + (q.get('q') || '') + '%';
-      const rows = await db.prepare(`SELECT o.*,c.name customer,c.phone FROM orders o JOIN customers c ON c.id=o.customer_id WHERE (o.no LIKE ? OR c.phone LIKE ? OR c.name LIKE ?) AND (?='' OR o.pay_status=?) AND (?='' OR o.status=?) ORDER BY o.id DESC LIMIT 100`).all(s, s, s, q.get('pay') || '', q.get('pay') || '', q.get('status') || '', q.get('status') || '');
+      const rows = await db.prepare(`SELECT o.*,c.name customer,c.phone FROM orders o JOIN customers c ON c.id=o.customer_id WHERE (o.no LIKE ? OR c.phone LIKE ? OR c.name LIKE ?) AND (CAST(? AS TEXT)='' OR o.pay_status=CAST(? AS TEXT)) AND (CAST(? AS TEXT)='' OR o.status=CAST(? AS TEXT)) ORDER BY o.id DESC LIMIT 100`).all(s, s, s, q.get('pay') || '', q.get('pay') || '', q.get('status') || '', q.get('status') || '');
       return Promise.all(rows.map(orderView));
     }
     if ((r = /^orders\/(ORD-[A-F0-9]+)$/.exec(P)) && m === 'PATCH') { await adminOf(req, ['owner', 'admin', 'staff']); return setStatus(r[1], String(body().status)); }
