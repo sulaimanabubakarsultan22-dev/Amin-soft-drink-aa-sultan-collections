@@ -1,13 +1,13 @@
 // Production-hardening tests: categories, images, SEO, payment safety, staff, backup, pagination.
-const {spawn}=require('child_process'),crypto=require('crypto'),fs=require('fs'),{DatabaseSync}=require('node:sqlite');
-for(const f of ['/tmp/t2.db','/tmp/t2.db-wal','/tmp/t2.db-shm'])try{fs.unlinkSync(f)}catch{}
-fs.rmSync('/tmp/bk2',{recursive:true,force:true});
-const env={...process.env,PORT:'3998',DB_PATH:'/tmp/t2.db',BACKUP_DIR:'/tmp/bk2',ADMIN_EMAIL:'o@x.com',ADMIN_PASSWORD:'correct-horse-battery',PAYSTACK_SECRET_KEY:'sk_test_dummy',PUBLIC_URL:'http://shop.test'};
+const {spawn}=require('child_process'),crypto=require('crypto'),fs=require('fs'),os=require('os'),path=require('path'),{DatabaseSync}=require('node:sqlite');
+const work=fs.mkdtempSync(path.join(os.tmpdir(),'amin-hardening-test-')),dbPath=path.join(work,'store.db'),backupDir=path.join(work,'backups');
+const env={...process.env,PORT:'3998',DB_PATH:dbPath,BACKUP_DIR:backupDir,ADMIN_EMAIL:'o@x.com',ADMIN_PASSWORD:'correct-horse-battery',PAYSTACK_SECRET_KEY:'sk_test_dummy',PUBLIC_URL:'http://shop.test'};
+delete env.DATABASE_URL;
 const start=()=>spawn('node',['--no-warnings','server.js'],{env,stdio:'ignore'}),sleep=ms=>new Promise(r=>setTimeout(r,ms));
 const B='http://localhost:3998';let f=0,n=0;const t=(m,ok)=>{n++;console.log(ok?'PASS':'FAIL',m);if(!ok)f++};
 const mk=()=>{let ck='';return async(m,p,b,h={})=>{const r=await fetch(B+p,{method:m,redirect:'manual',headers:{'content-type':'application/json','x-requested-with':'store',cookie:ck,...h},body:b&&(typeof b=='string'?b:JSON.stringify(b))});const sc=r.headers.get('set-cookie');if(sc)ck=sc.split(';')[0];const tx=await r.text();let j;try{j=JSON.parse(tx)}catch{j=tx}return[r.status,j,r]}};
 const PNG='data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==';
-const DB=()=>new DatabaseSync('/tmp/t2.db');
+const DB=()=>new DatabaseSync(dbPath);
 (async()=>{
  // legacy data: text-only categories must migrate to real category IDs
  let s=start();await sleep(900);s.kill();await sleep(300);
@@ -88,5 +88,5 @@ const DB=()=>new DatabaseSync('/tmp/t2.db');
  // pagination + backup
  for(let i=0;i<26;i++)await own('POST','/api/admin/products',{name:'Bulk '+i,price:10,stock:1});
  const pub=(await anon('GET','/api/products?page=2'))[1],ap=(await own('GET','/api/admin/products?page=2'))[1];t('pagination (24 public / 25 admin per page)',pub.items.length>0&&pub.total>24&&ap.items.length>0&&(await anon('GET','/api/products'))[1].items.length==24);
- const bk=fs.readdirSync('/tmp/bk2').filter(x=>/^store-.*\.db$/.test(x));t('automatic backup file created and is a valid database',bk.length>=1&&new DatabaseSync('/tmp/bk2/'+bk[0]).prepare('SELECT COUNT(*) n FROM admins').get().n>=1);
- console.log(f?f+' FAILED':'ALL PASSED',n+' checks');s.kill();process.exit(f?1:0)})().catch(e=>{console.error(e);process.exit(1)});
+ const bk=fs.readdirSync(backupDir).filter(x=>/^store-.*\.db$/.test(x));t('automatic backup file created and is a valid database',bk.length>=1&&new DatabaseSync(path.join(backupDir,bk[0])).prepare('SELECT COUNT(*) n FROM admins').get().n>=1);
+ console.log(f?f+' FAILED':'ALL PASSED',n+' checks');s.kill();await new Promise(resolve=>s.once('exit',resolve));fs.rmSync(work,{recursive:true,force:true});process.exit(f?1:0)})().catch(e=>{console.error(e);process.exit(1)});

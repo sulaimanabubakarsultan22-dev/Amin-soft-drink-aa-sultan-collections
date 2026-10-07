@@ -1,6 +1,8 @@
 const {spawn}=require('child_process'),crypto=require('crypto'),{DatabaseSync}=require('node:sqlite');
-const fs=require('fs');try{fs.unlinkSync('/tmp/t.db')}catch{}
-const env={...process.env,PORT:'3999',DB_PATH:'/tmp/t.db',ADMIN_EMAIL:'o@x.com',ADMIN_PASSWORD:'correct-horse-battery',PAYSTACK_SECRET_KEY:'sk_test_dummy',PUBLIC_URL:'http://x'};
+const fs=require('fs'),os=require('os'),path=require('path');
+const work=fs.mkdtempSync(path.join(os.tmpdir(),'amin-regression-test-')),dbPath=path.join(work,'store.db');
+const env={...process.env,PORT:'3999',DB_PATH:dbPath,ADMIN_EMAIL:'o@x.com',ADMIN_PASSWORD:'correct-horse-battery',PAYSTACK_SECRET_KEY:'sk_test_dummy',PUBLIC_URL:'http://x'};
+delete env.DATABASE_URL;
 const s=spawn('node',['server.js'],{env,stdio:'ignore'});let ck='',f=0;
 const B='http://localhost:3999/api',H={'content-type':'application/json','x-requested-with':'store'};
 const C=async(m,p,b,h={})=>{const r=await fetch(B+p,{method:m,headers:{...H,cookie:ck,...h},body:b&&(typeof b=='string'?b:JSON.stringify(b))});const j=await r.json();if(r.headers.get('set-cookie'))ck=r.headers.get('set-cookie').split(';')[0];return[r.status,j]};
@@ -28,7 +30,7 @@ const t=(n,ok)=>{console.log(ok?'PASS':'FAIL',n);if(!ok)f++};
  t('track wrong phone hidden',(await C('POST','/track',{no:o.no,phone:'08099999999'}))[0]==404);
  t('webhook bad signature rejected',(await C('POST','/webhook/paystack','{"event":"charge.success"}',{'x-paystack-signature':'abc'}))[0]==401);
  await C('POST',`/orders/${o.no}/pay`,{}); // offline: provider unreachable, but pending payment row is recorded
- const db=new DatabaseSync('/tmp/t.db');const ref=db.prepare('SELECT reference r FROM payments').get().r;
+ const db=new DatabaseSync(dbPath);const ref=db.prepare('SELECT reference r FROM payments').get().r;
  const hook=async(d)=>{const raw=JSON.stringify({event:'charge.success',data:d});return C('POST','/webhook/paystack',raw,{'x-paystack-signature':crypto.createHmac('sha512','sk_test_dummy').update(raw).digest('hex')})};
  await hook({reference:ref,status:'success',amount:100,currency:'NGN'});
  t('wrong amount NOT marked paid',(await C('POST','/track',{no:o.no,phone:'08012345678'}))[1].pay_status=='pending');
@@ -64,4 +66,4 @@ const t=(n,ok)=>{console.log(ok?'PASS':'FAIL',n);if(!ok)f++};
  ck='';await C('POST','/admin/login',{email:'o@x.com',password:'correct-horse-battery'});
  await C('PUT',`/admin/products/${pr.id}`,{name:'Sneakers',sku:'SN1',price:10000,stock:2,active:false});
  t('hidden product not visible to customers',(await C('GET','/products/'+pr.id))[0]==404&&(await C('GET','/products'))[1].total==0);
- console.log(f?f+' FAILED':'ALL PASSED');s.kill();process.exit(f?1:0)})();
+ console.log(f?f+' FAILED':'ALL PASSED');db.close();s.kill();await new Promise(resolve=>s.once('exit',resolve));fs.rmSync(work,{recursive:true,force:true});process.exit(f?1:0)})();

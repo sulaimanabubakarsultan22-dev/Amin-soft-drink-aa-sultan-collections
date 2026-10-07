@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 160" role="img" aria-labelledby="title">
+  <title id="title">AMIN SOFT DRINK &amp; A.A SULTAN COLLECTIONS</title>
+  <rect width="640" height="160" rx="24" fill="#075e3c"/>
+  <circle cx="80" cy="80" r="57" fill="#f5b83d"/>
+  <path d="M50 104 76 48h10l27 56H97l-5-12H69l-5 12zm24-23h14l-7-17z" fill="#075e3c"/>
+  <path d="M45 116h70" stroke="#075e3c" stroke-width="5" stroke-linecap="round"/>
+  <text x="154" y="70" fill="#fff" font-family="Arial,sans-serif" font-size="31" font-weight="700" letter-spacing="1">AMIN SOFT DRINK</text>
+  <path d="M154 83h440" stroke="#f5b83d" stroke-width="3"/>
+  <text x="154" y="117" fill="#fff" font-family="Arial,sans-serif" font-size="22" font-weight="600" letter-spacing=".6">&amp; A.A SULTAN COLLECTIONS</text>
+</svg>

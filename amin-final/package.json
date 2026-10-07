@@ -3,11 +3,16 @@
   "version": "1.0.0",
   "private": true,
   "engines": {
-    "node": ">=22"
+    "node": ">=22.9"
   },
   "scripts": {
-    "start": "node --env-file=.env seed-catalog.js && node --env-file=.env server.js",
-    "test": "node test.js && node test2.js",
-    "db:seed": "node seed-catalog.js"
+    "start": "node --env-file-if-exists=.env seed-catalog.js && node --env-file-if-exists=.env server.js",
+    "test": "node test-database.js && node test-data-migration.js && node test.js && node test2.js && node test-catalog.js && node test-payments.js && node test-postgres.js",
+    "db:migrate": "node --env-file-if-exists=.env scripts/migrate.js",
+    "db:migrate-data": "node --env-file-if-exists=.env scripts/migrate-data.js",
+    "db:seed": "node --env-file-if-exists=.env seed-catalog.js"
+  },
+  "dependencies": {
+    "pg": "^8.16.3"
   }
 }

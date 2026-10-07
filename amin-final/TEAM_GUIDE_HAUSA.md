@@ -4,7 +4,7 @@
 - **Owner / Super Admin:** yana da cikakken iko.
 - **Admin:** products, farashi, stock, orders, payments da settings.
 - **Staff:** talla da videos. Za su saka video, su haɗa shi da kaya, sannan video ya fito a shafin Videos.
-- **Customer Care:** kira, WhatsApp, taimakon customer da duba orders/customers. Ba su da ikon canza farashi ko products.
+- **Customer Care:** Call, WhatsApp, taimakon customer da duba orders/customers. Ba su da ikon canza farashi ko products.
 
 ## Staff video
 Shiga **Admin → Videos**. Cika title, zaɓi kaya idan akwai, rubuta bayani, sannan:
