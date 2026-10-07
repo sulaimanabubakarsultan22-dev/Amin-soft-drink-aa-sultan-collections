@@ -2,7 +2,9 @@
 
 const assert = require('node:assert/strict');
 const crypto = require('node:crypto');
+const { spawn } = require('node:child_process');
 const fs = require('node:fs');
+const net = require('node:net');
 const os = require('node:os');
 const path = require('node:path');
 
@@ -19,6 +21,62 @@ const requiredTables = [
   'order_items', 'payments', 'settings', 'order_events',
   'annual_award_winners', 'annual_award_config', 'coupons', 'videos'
 ];
+
+async function verifyStoreEndpoints(productId, filterCategoryId, migratedCategoryId) {
+  const portServer = net.createServer();
+  await new Promise((resolve, reject) => {
+    portServer.once('error', reject);
+    portServer.listen(0, '127.0.0.1', resolve);
+  });
+  const { port } = portServer.address();
+  await new Promise((resolve, reject) => portServer.close(error => error ? reject(error) : resolve()));
+
+  const child = spawn(process.execPath, ['server.js'], {
+    cwd: __dirname,
+    env: { ...process.env, PORT: String(port) },
+    stdio: ['ignore', 'pipe', 'pipe']
+  });
+  let output = '';
+  child.stdout.on('data', chunk => { output += chunk; });
+  child.stderr.on('data', chunk => { output += chunk; });
+  const base = `http://127.0.0.1:${port}`;
+  try {
+    let productsResponse;
+    for (let attempt = 0; attempt < 50; attempt++) {
+      if (child.exitCode !== null) throw new Error(`PostgreSQL-backed server exited early:\n${output}`);
+      try {
+        productsResponse = await fetch(`${base}/api/products?cat=${filterCategoryId}`);
+        if (productsResponse.ok) break;
+        output += `\n/api/products returned HTTP ${productsResponse.status}`;
+      } catch (error) {
+        output = `${error.message}\n${output}`;
+      }
+      await new Promise(resolve => setTimeout(resolve, 100));
+    }
+    assert.ok(productsResponse?.ok, `PostgreSQL-backed /api/products did not respond successfully:\n${output}`);
+    const products = await productsResponse.json();
+    assert.ok(Array.isArray(products.items), '/api/products returns an items array');
+    assert.ok(Array.isArray(products.cats), '/api/products returns categories for the storefront');
+    assert.ok(products.cats.some(category => category.id === filterCategoryId), '/api/products returns active categories for the storefront');
+
+    const categoriesResponse = await fetch(`${base}/api/categories`);
+    assert.equal(categoriesResponse.status, 200, '/api/categories responds successfully on PostgreSQL');
+    const categories = await categoriesResponse.json();
+    assert.ok(categories.items.some(category => category.id === migratedCategoryId), '/api/categories returns the migrated category');
+
+    const videosResponse = await fetch(`${base}/api/videos?product=${productId}`);
+    assert.equal(videosResponse.status, 200, '/api/videos responds successfully on PostgreSQL');
+    const videos = await videosResponse.json();
+    assert.ok(videos.items.some(video => video.product_id === productId), '/api/videos supports the typed product filter');
+    console.log('PASS PostgreSQL-backed products, categories and videos endpoints');
+  } finally {
+    const stopped = child.exitCode !== null || child.signalCode !== null
+      ? Promise.resolve()
+      : new Promise(resolve => child.once('exit', resolve));
+    if (child.exitCode === null && child.signalCode === null) child.kill('SIGTERM');
+    await stopped;
+  }
+}
 
 function makeSource(sourcePath, baseId, changedAdmin = false) {
   const source = new (require('node:sqlite').DatabaseSync)(sourcePath);
@@ -146,6 +204,27 @@ function makeSource(sourcePath, baseId, changedAdmin = false) {
     assert.equal((await db.get('SELECT reward FROM annual_award_config WHERE id=1')).reward, `Test reward ${baseId}`);
     assert.equal((await db.get('SELECT COUNT(*)::integer AS count FROM sessions WHERE admin_id=?', importedAdmin.id)).count, 1);
     assert.equal((await db.get('SELECT COUNT(*)::integer AS count FROM sessions WHERE token_hash LIKE ?', `expired-token-hash-${baseId}`)).count, 0);
+
+    const awardYear = Number(new Intl.DateTimeFormat('en', { timeZone: 'Africa/Lagos', year: 'numeric' }).format(new Date()));
+    const awardBounds = [`${awardYear}-01-01T00:00:00+01:00`, `${awardYear + 1}-01-01T00:00:00+01:00`];
+    const rankings = await db.all(`SELECT c.id customer_id,c.name,c.phone,c.email,SUM(o.total) spent,COUNT(o.id) paid_orders,COUNT(o.id) orders
+      FROM orders o JOIN customers c ON c.id=o.customer_id
+      JOIN (SELECT order_id,MIN(verified) paid_at FROM payments WHERE status='paid' AND verified IS NOT NULL GROUP BY order_id) paid ON paid.order_id=o.id
+      WHERE o.pay_status='paid' AND o.status NOT IN ('cancelled','refunded') AND datetime(paid.paid_at)>=datetime(?) AND datetime(paid.paid_at)<datetime(?)
+      GROUP BY c.id ORDER BY spent DESC,paid_orders DESC,c.id ASC LIMIT CAST(? AS INTEGER)`,
+    ...awardBounds, 10);
+    assert.ok(rankings.some(customer => customer.customer_id === customerId), 'awardRanks SQL runs on PostgreSQL');
+    const filteredOrders = await db.all(`SELECT o.id FROM orders o JOIN customers c ON c.id=o.customer_id
+      WHERE (o.no LIKE ? OR c.phone LIKE ? OR c.name LIKE ?)
+      AND (CAST(? AS TEXT)='' OR o.pay_status=CAST(? AS TEXT))
+      AND (CAST(? AS TEXT)='' OR o.status=CAST(? AS TEXT))`,
+    `%${baseId}%`, `%${baseId}%`, `%${baseId}%`, '', '', '', '');
+    assert.ok(filteredOrders.some(order => order.id === orderId), 'admin order filters run with optional PostgreSQL parameters');
+    assert.equal((await db.get("SELECT MIN(CAST(strftime('%Y',verified,'+01:00') AS INTEGER)) AS award_year FROM payments WHERE order_id=? AND status='paid'", orderId)).award_year,
+      awardYear, 'award year extraction runs on PostgreSQL');
+    assert.equal((await db.get('SELECT id FROM products WHERE id=? AND ((active=1 AND category_id IS NOT NULL) OR CAST(? AS INTEGER)=1)', productId, 0)).id,
+      productId, 'image visibility predicate runs with typed PostgreSQL parameters');
+    await verifyStoreEndpoints(productId, categoryId, categoryId + 100);
 
     result = await migrateSQLiteToPostgres({ sourcePath, destination: db, dryRun: false });
     assert.ok(result.every(row => row.insertedRows === 0), 'repeat import creates no duplicates');

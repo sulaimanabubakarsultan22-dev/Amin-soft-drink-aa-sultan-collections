@@ -72,7 +72,7 @@ function translatePostgresSql(sql) {
   let translated = sql
     .replace(/\?/g, () => `$${++index}`)
     .replace(/\bdatetime\(([^)]+)\)/gi, 'CAST($1 AS timestamptz)')
-    .replace(/strftime\('%Y',\s*verified,\s*'\+01:00'\)/gi, "EXTRACT(YEAR FROM CAST(verified AS timestamptz) AT TIME ZONE 'Africa/Lagos')")
+    .replace(/strftime\('%Y',\s*verified,\s*'\+01:00'\)/gi, "EXTRACT(YEAR FROM (CAST(verified AS timestamptz) AT TIME ZONE 'Africa/Lagos'))")
     .replace(/INSERT\s+OR\s+IGNORE\s+INTO/gi, 'INSERT INTO');
   if (ignoreConflict) translated = translated.replace(/;?\s*$/, ' ON CONFLICT DO NOTHING');
   return translated;

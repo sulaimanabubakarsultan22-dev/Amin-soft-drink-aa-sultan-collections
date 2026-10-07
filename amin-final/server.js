@@ -58,7 +58,7 @@ async function awardRanks(year, limit = 10) {
     GROUP BY c.id ORDER BY spent DESC,paid_orders DESC,c.id ASC LIMIT CAST(? AS INTEGER)`).all(from, to, limit);
 }
 async function archiveAwardsThrough(year) {
-  const min = (await db.prepare("SELECT MIN(CAST(strftime('%Y',verified,'+01:00') AS INTEGER)) year FROM payments WHERE status='paid' AND verified IS NOT NULL").get()).year;
+  const min = (await db.prepare("SELECT MIN(CAST(strftime('%Y',verified,'+01:00') AS INTEGER)) AS award_year FROM payments WHERE status='paid' AND verified IS NOT NULL").get()).award_year;
   if (!min) return;
   for (let y = min; y <= year; y++) {
     if (await db.prepare('SELECT 1 FROM annual_award_winners WHERE year=? LIMIT 1').get(y)) continue;
@@ -518,21 +518,21 @@ const server = http.createServer(async (req, res) => {
       }
       if ((m2 = /^\/imgfront\/(\d+)$/.exec(u))) {
         let adm = false; try { await adminOf(req); adm = true; } catch {}
-        const x = await db.prepare('SELECT image_front FROM products WHERE id=? AND ((active=1 AND ' + CV + ') OR ?)').get(+m2[1], adm ? 1 : 0), mm = x && IMG.exec(x.image_front || '');
+        const x = await db.prepare('SELECT image_front FROM products WHERE id=? AND ((active=1 AND ' + CV + ') OR CAST(? AS INTEGER)=1)').get(+m2[1], adm ? 1 : 0), mm = x && IMG.exec(x.image_front || '');
         if (!mm) return send(404, { error: 'Not found' });
         res.writeHead(200, { 'content-type': 'image/' + mm[1], 'cache-control': 'public, max-age=86400', 'x-content-type-options': 'nosniff', 'content-security-policy': "default-src 'none'" });
         return res.end(Buffer.from(x.image_front.slice(x.image_front.indexOf(',') + 1), 'base64'));
       }
       if ((m2 = /^\/imgback\/(\d+)$/.exec(u))) {
         let adm = false; try { await adminOf(req); adm = true; } catch {}
-        const x = await db.prepare('SELECT image_back FROM products WHERE id=? AND ((active=1 AND ' + CV + ') OR ?)').get(+m2[1], adm ? 1 : 0), mm = x && IMG.exec(x.image_back || '');
+        const x = await db.prepare('SELECT image_back FROM products WHERE id=? AND ((active=1 AND ' + CV + ') OR CAST(? AS INTEGER)=1)').get(+m2[1], adm ? 1 : 0), mm = x && IMG.exec(x.image_back || '');
         if (!mm) return send(404, { error: 'Not found' });
         res.writeHead(200, { 'content-type': 'image/' + mm[1], 'cache-control': 'public, max-age=86400', 'x-content-type-options': 'nosniff', 'content-security-policy': "default-src 'none'" });
         return res.end(Buffer.from(x.image_back.slice(x.image_back.indexOf(',') + 1), 'base64'));
       }
       if ((m2 = /^\/img\/(\d+)$/.exec(u))) {
         let adm = false; try { await adminOf(req); adm = true; } catch {}
-        const x = await db.prepare('SELECT image FROM products WHERE id=? AND ((active=1 AND ' + CV + ') OR ?)').get(+m2[1], adm ? 1 : 0);
+        const x = await db.prepare('SELECT image FROM products WHERE id=? AND ((active=1 AND ' + CV + ') OR CAST(? AS INTEGER)=1)').get(+m2[1], adm ? 1 : 0);
         if (x && PRODUCT_ART.test(x.image || '')) {
           const file = path.join(__dirname, 'public', x.image.slice(1));
           if (!fs.existsSync(file)) return send(404, { error: 'Not found' });
