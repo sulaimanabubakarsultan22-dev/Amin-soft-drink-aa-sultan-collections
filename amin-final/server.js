@@ -35,10 +35,12 @@ try { db.exec('ALTER TABLE order_items ADD COLUMN pack_qty INTEGER DEFAULT 1'); 
 const now = () => new Date().toISOString();
 class Err extends Error { constructor(c, m) { super(m); this.c = c; } }
 const hashPw = p => { const s = crypto.randomBytes(16); return s.toString('hex') + ':' + crypto.scryptSync(p, s, 64).toString('hex'); };
-const checkPw = (p, h) => { const [s, k] = h.split(':'); return crypto.timingSafeEqual(crypto.scryptSync(p, Buffer.from(s, 'hex'), 64), Buffer.from(k, 'hex')); };
+const checkPw = (p, h) => { const m = /^([a-f0-9]{32}):([a-f0-9]{128})$/i.exec(String(h || '')); if (!m) return false; return crypto.timingSafeEqual(crypto.scryptSync(String(p), Buffer.from(m[1], 'hex'), 64), Buffer.from(m[2], 'hex')); };
+const validEmail = e => /^\S+@\S+\.\S+$/.test(e);
 const sha = t => crypto.createHash('sha256').update(t).digest('hex');
-if (!db.prepare('SELECT 1 FROM admins').get() && E.ADMIN_EMAIL && (E.ADMIN_PASSWORD || '').length >= 10)
-  db.prepare('INSERT INTO admins(name,email,hash,role,created) VALUES(?,?,?,?,?)').run('Owner', E.ADMIN_EMAIL.toLowerCase(), hashPw(E.ADMIN_PASSWORD), 'owner', now());
+const configuredEmail = String(E.ADMIN_EMAIL || '').trim().toLowerCase(), configuredPassword = String(E.ADMIN_PASSWORD || '');
+if (!db.prepare('SELECT 1 FROM admins').get() && validEmail(configuredEmail) && configuredPassword.length >= 10)
+  db.prepare('INSERT INTO admins(name,email,hash,role,created) VALUES(?,?,?,?,?)').run('Owner', configuredEmail, hashPw(configuredPassword), 'owner', now());
 
 const hits = new Map();
 const ipOf = req => (E.TRUST_PROXY === '1' && String(req.headers['x-forwarded-for'] || '').split(',')[0].trim()) || req.socket.remoteAddress;
@@ -47,7 +49,7 @@ const hit = k => { if (!hits.has(k)) hits.set(k, []); hits.get(k).push(Date.now(
 const ph = p => { const m = /^(?:234|0)([789][01]\d{8})$/.exec(String(p || '').replace(/[\s\-+]/g, '')); return m ? '0' + m[1] : null; };
 const str = (v, min, max, f) => { v = String(v ?? '').trim(); if (v.length < min || v.length > max) throw new Err(400, `${f} is invalid`); return v; };
 const int = (v, min, max, f) => { v = Number(v); if (!Number.isInteger(v) || v < min || v > max) throw new Err(400, `${f} is invalid`); return v; };
-const DEF = { name: 'AMIN SOFT DRINK & A.A SULTAN COLLECTIONS', tag: 'Abubuwan sha da kayan masarufi iri-iri • Yi oda online • A biya online • A kawo maka har inda kake', wa: '2348163827505', phone: '08163827505', email: '', address: '', cur: '₦', fee: String(FEE), fb: '', ig: '', x: '', tt: '', hours: '', returns: '' };
+const DEF = { name: 'AMIN SOFT DRINK & A.A SULTAN COLLECTIONS', tag: 'Soft drinks and a wide range of household products • Order online • Pay online • We deliver to your doorstep', wa: '2348163827505', phone: '08163827505', email: '', address: '', cur: '₦', fee: String(FEE), fb: '', ig: '', x: '', tt: '', hours: '', returns: '' };
 const settings = () => { const o = { ...DEF }; for (const r of db.prepare('SELECT k,v FROM settings').all()) if (r.k in DEF) o[r.k] = r.v; return o; };
 // Notification hook: wire email/SMS/WhatsApp providers here. Nothing is sent until you do.
 const notify = (event, data) => {};
@@ -215,9 +217,43 @@ async function route(req, res, url, raw) {
     if (!o) throw new Err(404, 'No order found for that number and phone');
     const v = orderView(o); v.customer = v.cname; delete v.cname; delete v.idem; delete v.id; delete v.customer_id; delete v.stocked; v.payments = v.payments.map(x => ({ status: x.status, amount: x.amount })); return v;
   }
+  if (m === 'GET' && p === '/api/admin/setup-status') {
+    const adminCount = db.prepare('SELECT COUNT(*) AS n FROM admins').get().n;
+    return { ownerSetupAvailable: adminCount === 0, ownerRecoveryAvailable: adminCount > 0 && validEmail(configuredEmail) && configuredPassword.length >= 10 };
+  }
+  if (m === 'POST' && p === '/api/admin/create-owner') {
+    const ip = 'o' + ipOf(req); if (limited(ip, 5, 9e5)) throw new Err(429, 'Too many setup attempts. Wait 15 minutes.'); hit(ip);
+    const b = body(), name = str(b.name, 3, 100, 'Full name'), email = str(b.email, 5, 120, 'Email').toLowerCase(), password = String(b.password || '');
+    if (!validEmail(email)) throw new Err(400, 'Email is invalid');
+    if (password.length < 10) throw new Err(400, 'Password must be at least 10 characters');
+    if (password !== String(b.confirmPassword || '')) throw new Err(400, 'Passwords do not match');
+    tx(() => {
+      if (db.prepare('SELECT 1 FROM admins LIMIT 1').get()) throw new Err(409, 'An admin account already exists. Owner account setup is disabled.');
+      db.prepare('INSERT INTO admins(name,email,hash,role,created,active) VALUES(?,?,?,?,?,1)').run(name, email, hashPw(password), 'owner', now());
+    });
+    return { ok: true };
+  }
+  if (m === 'POST' && p === '/api/admin/recover-owner') {
+    const ip = 'r' + ipOf(req); if (limited(ip, 5, 9e5)) throw new Err(429, 'Too many recovery attempts. Wait 15 minutes.'); hit(ip);
+    const b = body(), email = String(b.email || '').trim().toLowerCase(), password = String(b.password || ''), expected = Buffer.from(configuredPassword), supplied = Buffer.from(password);
+    if (!validEmail(configuredEmail) || configuredPassword.length < 10 || email !== configuredEmail || supplied.length !== expected.length || !crypto.timingSafeEqual(supplied, expected))
+      throw new Err(401, 'Recovery credentials are invalid');
+    tx(() => {
+      if (!db.prepare('SELECT 1 FROM admins LIMIT 1').get()) throw new Err(409, 'No admin account exists. Use Create Owner Account instead.');
+      const existing = db.prepare('SELECT id,role FROM admins WHERE lower(trim(email))=?').get(configuredEmail);
+      if (existing && existing.role !== 'owner') throw new Err(409, 'An account already uses this email. Contact an existing owner.');
+      if (existing) {
+        db.prepare('UPDATE admins SET hash=?,active=1 WHERE id=?').run(hashPw(configuredPassword), existing.id);
+        db.prepare('DELETE FROM sessions WHERE admin_id=?').run(existing.id);
+      } else {
+        db.prepare('INSERT INTO admins(name,email,hash,role,created,active) VALUES(?,?,?,?,?,1)').run('Owner', configuredEmail, hashPw(configuredPassword), 'owner', now());
+      }
+    });
+    return { ok: true };
+  }
   if (m === 'POST' && p === '/api/admin/login') {
     const ip = 'l' + ipOf(req); if (limited(ip, 5, 9e5)) throw new Err(429, 'Too many failed logins. Wait 15 minutes.');
-    const b = body(), a = db.prepare('SELECT * FROM admins WHERE email=?').get(String(b.email || '').toLowerCase());
+    const b = body(), a = db.prepare('SELECT * FROM admins WHERE lower(trim(email))=?').get(String(b.email || '').trim().toLowerCase());
     let ok = false; try { ok = a && a.active !== 0 && checkPw(String(b.password || ''), a.hash); } catch {}
     if (!ok) { hit(ip); throw new Err(401, 'Incorrect email or password'); }
     const t = crypto.randomBytes(32).toString('hex'); db.prepare('INSERT INTO sessions VALUES(?,?,?)').run(sha(t), a.id, Date.now() + 864e5); db.prepare('UPDATE admins SET last_login=? WHERE id=?').run(now(), a.id);

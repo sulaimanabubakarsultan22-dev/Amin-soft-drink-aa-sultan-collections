@@ -24,7 +24,7 @@ The store displays **Call** and **WhatsApp** using 08163827505. Add the real Fac
 - Owner/Super Admin: cikakken iko.
 - Admin: products, farashi, stock, orders, payments da settings.
 - Staff: **Videos/Talla** kawai a dashboard; yana iya saka product videos har zuwa 10MB ko HTTPS URL.
-- Customer Care: **Customer Care, Orders, Customers**; yana kula da kira/WhatsApp da taimakon customers.
+- Customer Care: **Customer Care, Orders, Customers**; yana kula da Call/WhatsApp da taimakon customers.
 
 ## Videos
 A public site akwai **🎥 Videos**. Staff ya shiga Admin → Videos, ya zaɓi product idan ya dace, ya upload MP4/WebM/OGG ko ya saka HTTPS URL. Customer zai iya kallon video ya danna Buy Now.
