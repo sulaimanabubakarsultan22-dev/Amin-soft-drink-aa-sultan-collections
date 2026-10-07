@@ -32,7 +32,7 @@ const expectedTables = [
     );
     assert.equal(
       translatePostgresSql("SELECT MIN(CAST(strftime('%Y',verified,'+01:00') AS INTEGER)) AS award_year FROM payments WHERE status='paid' AND verified IS NOT NULL"),
-      "SELECT MIN(CAST(EXTRACT(YEAR FROM (CAST(verified AS timestamptz) AT TIME ZONE 'Africa/Lagos')) AS INTEGER)) AS award_year FROM payments WHERE status='paid' AND verified IS NOT NULL"
+      "SELECT MIN(CAST(TO_CHAR((CAST(verified AS timestamptz) AT TIME ZONE 'Africa/Lagos'), 'YYYY') AS INTEGER)) AS award_year FROM payments WHERE status='paid' AND verified IS NOT NULL"
     );
     assert.equal(
       translatePostgresSql('SELECT paid_at FROM payments WHERE datetime(paid_at)>=datetime(?) AND datetime(paid_at)<datetime(?)'),
