@@ -23,6 +23,10 @@ const requiredTables = [
 ];
 
 async function verifyStoreEndpoints(productId, migratedCategoryId, db, checkoutPhone) {
+  const photoData = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/aYQAAAAASUVORK5CYII=';
+  const photoBytes = Buffer.from(photoData.split(',')[1], 'base64');
+  await db.run('UPDATE products SET image=?,image_front=?,image_back=?,updated=? WHERE id=?',
+    photoData, photoData, photoData, new Date().toISOString(), productId);
   const portServer = net.createServer();
   await new Promise((resolve, reject) => {
     portServer.once('error', reject);
@@ -58,10 +62,17 @@ async function verifyStoreEndpoints(productId, migratedCategoryId, db, checkoutP
     assert.ok(Array.isArray(products.items), '/api/products returns an items array');
     assert.ok(products.items.some(product => product.id === productId), '/api/products returns the migrated product');
     const listedProduct = products.items.find(product => product.id === productId);
+    assert.match(listedProduct.image, new RegExp(`^/img/${productId}\\?v=`),
+      '/api/products returns the saved photo URL on PostgreSQL');
     assert.match(listedProduct.image_front, new RegExp(`^/imgfront/${productId}\\?v=`),
       '/api/products preserves the image cache-busting ?v= URL on PostgreSQL');
     assert.match(listedProduct.image_back, new RegExp(`^/imgback/${productId}\\?v=`),
       '/api/products preserves the image cache-busting ?v= URL on PostgreSQL');
+    const servedPhoto = await fetch(`${base}${listedProduct.image}`);
+    assert.equal(servedPhoto.status, 200, 'PostgreSQL-backed storefront photo URL is served');
+    assert.equal(servedPhoto.headers.get('content-type'), 'image/png', 'PostgreSQL-backed photo keeps its image content type');
+    assert.deepEqual(Buffer.from(await servedPhoto.arrayBuffer()), photoBytes,
+      'PostgreSQL-backed photo retrieval returns the saved image bytes');
     assert.ok(Array.isArray(products.cats), '/api/products returns categories for the storefront');
     assert.ok(products.cats.some(category => category.id === migratedCategoryId), '/api/products returns active categories for the storefront');
 
@@ -213,7 +224,11 @@ function makeSource(sourcePath, baseId, changedAdmin = false) {
     }, 'optional filters and pagination bind explicitly typed PostgreSQL parameters');
     const tables = new Set((await db.all("SELECT table_name FROM information_schema.tables WHERE table_schema=current_schema()")).map(row => row.table_name));
     for (const table of [...requiredTables, 'schema_migrations']) assert.ok(tables.has(table), `missing PostgreSQL table ${table}`);
-    assert.ok((await db.all("SELECT column_name FROM information_schema.columns WHERE table_name='products'")).some(row => row.column_name === 'category_id'), 'products.category_id relationship exists');
+    const productColumns = new Set((await db.all("SELECT column_name FROM information_schema.columns WHERE table_name='products'")).map(row => row.column_name));
+    assert.ok(productColumns.has('category_id'), 'products.category_id relationship exists');
+    for (const column of ['image', 'image_front', 'image_back']) {
+      assert.ok(productColumns.has(column), `products.${column} photo field exists in PostgreSQL`);
+    }
     assert.equal((await db.get("SELECT COUNT(*)::integer AS count FROM schema_migrations WHERE version='001-initial'")).count, 1, 'repeat PostgreSQL migration is idempotent');
     await db.run('INSERT INTO admins(id,name,email,hash,role,created,active) VALUES(?,?,?,?,?,?,1)',
       adminId, 'Existing Destination Admin', `destination-${baseId}@example.test`, `destination-hash-${baseId}`, 'owner', new Date().toISOString());

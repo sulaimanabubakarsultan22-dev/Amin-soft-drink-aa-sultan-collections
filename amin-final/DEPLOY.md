@@ -54,7 +54,7 @@ Until step 3 succeeds, treat payments as NOT production-verified.
 - Payments marked `refund_due` (duplicate or late payment) must be refunded manually in Paystack.
 
 ## Known limitations
-- Images are stored inside SQLite (max 700KB each, resized in the browser, cached via /img/). Fine for a few hundred products; for thousands move them to a disk folder/object storage. Backups include them.
+- Product photos (max 700KB each) are resized in the browser and stored in the product image fields of the configured database (SQLite or PostgreSQL). The storefront serves them through `/img/` routes. For a catalog with thousands of products, move image storage to a disk folder or object storage. SQLite backups include photos; PostgreSQL photos are covered by the database's backups.
 - The generated catalog artwork is not shown as product photography. Until a verified matching photo is uploaded under Admin > Products, the storefront clearly marks the photo as needed.
 - Annual Customer of the Year rankings use Paystack-verified payment time in the Africa/Lagos calendar year. Cancelled/refunded orders are excluded; past top-three winners are archived on the next year's leaderboard view. Configure the reward and export rankings under Admin > Awards. Admin > Coupons manages percentage coupon codes; carton savings and product markdowns power the existing offers.
 - No product variants (size/colour) yet; no customer accounts; no email/SMS/WhatsApp sending (hook: `notify()` in server.js); no Meta posting (needs META_APP_ID/SECRET + OAuth).

@@ -231,28 +231,34 @@ async function prods(){const J=await A('GET','/products?page='+ap),L=J.items||[]
  if(edit){pend=p.image||'';pfront=p.image_front||'';pback=p.image_back||'';$('#ab').innerHTML=`<div class="card"><form id="pf"><label>Name *</label><input name="name" value="${esc(p.name)}"><label>SKU</label><input name="sku" value="${esc(p.sku)}"><label>Category</label><select name="category_id"><option value="">None</option>${CT.map(c=>`<option value="${c.id}" ${c.id==p.category_id?'selected':''}>${esc(c.name)}</option>`).join('')}</select><label>Description</label><textarea name="description">${esc(p.description)}</textarea>
  <label>Unit price (₦) *</label><input name="price" type="number" min="1" value="${p.price??''}"><label>Carton price (₦) — optional</label><input name="carton_price" type="number" min="1" value="${p.carton_price??''}"><label>Items per carton — optional</label><input name="carton_qty" type="number" min="1" value="${p.carton_qty??''}"><label>Discount price (optional)</label><input name="discount" type="number" min="0" value="${p.discount||''}"><label>Size (e.g. 38, 40, XL, or Free Size)</label><input name="size" value="${esc(p.size||'')}"><label>Stock *</label><input name="stock" type="number" min="0" value="${p.stock??''}">
  <label>Main photo</label><input id="pi" type="file" accept="image/jpeg,image/png,image/webp"><img id="pv" src="${p.image||''}" alt="" style="max-height:140px;margin-top:8px"><label>Front photo</label><input id="pif" type="file" accept="image/jpeg,image/png,image/webp"><img id="pvf" src="${p.image_front||''}" alt="" style="max-height:140px;margin-top:8px"><label>Back photo</label><input id="pib" type="file" accept="image/jpeg,image/png,image/webp"><img id="pvb" src="${p.image_back||''}" alt="" style="max-height:140px;margin-top:8px"><label>Product colors</label><input name="colors" value="${esc(p.colors||'')}" placeholder="e.g. Black, Red, Blue"><label>Product quality</label><textarea name="quality" placeholder="Describe the product quality and materials">${esc(p.quality||'')}</textarea><label>Video link (YouTube/Facebook/TikTok or MP4 URL)</label><input name="video_url" type="url" value="${esc(p.video_url||'')}" placeholder="https://..."><label><input type="checkbox" name="featured" style="width:auto;min-height:0" ${p.featured?'checked':''}> Feature this product</label><label><input type="checkbox" name="active" style="width:auto;min-height:0" ${p.active!==0?'checked':''}> Visible in store</label><div class="row" style="margin-top:12px"><button class="btn">Save</button><button type="button" class="btn s" onclick="edit=null;admin()">Cancel</button></div></form></div>`;
+  const photoTasks=new Map();
   const photoInput=(id,previewId,setValue)=>{
-   const input=$(id),preview=$(previewId);preview.className='product-photo-preview';preview.alt='Product photo preview';preview.style.display=preview.getAttribute('src')?'block':'none';
+   const input=$(id),preview=$(previewId);let revision=0,previewUrl='',savedPreview=preview.getAttribute('src')||'';preview.className='product-photo-preview';preview.alt='Product photo preview';preview.style.display=savedPreview?'block':'none';
    const clear=document.createElement('button');clear.type='button';clear.className='btn d sm';clear.textContent='Remove photo';clear.setAttribute('aria-label','Remove '+(id==='#pi'?'primary':id==='#pif'?'front':'back')+' product photo');preview.after(clear);
-   clear.onclick=()=>{setValue('');input.value='';preview.removeAttribute('src');preview.style.display='none'};
+   clear.onclick=()=>{revision++;photoTasks.delete(id);setValue('');input.value='';if(previewUrl)URL.revokeObjectURL(previewUrl);previewUrl='';savedPreview='';preview.removeAttribute('src');preview.style.display='none'};
    input.onchange=e=>{
     const file=e.target.files[0];if(!file)return;
     if(!['image/jpeg','image/png','image/webp'].includes(file.type)){input.value='';return toast('Choose a JPG, PNG or WebP image.')}
     if(file.size>5e6){input.value='';return toast('Choose an image smaller than 5MB.')}
-    const reader=new FileReader();reader.onerror=()=>toast('Could not read that image.');
-    reader.onload=()=>{
-     const image=new Image();image.onerror=()=>toast('Could not decode that image.');
-     image.onload=()=>{
+    const current=++revision;if(previewUrl)URL.revokeObjectURL(previewUrl);previewUrl=URL.createObjectURL(file);preview.src=previewUrl;preview.style.display='block';
+    const task=new Promise(resolve=>{
+     const fail=message=>{if(current===revision){if(previewUrl)URL.revokeObjectURL(previewUrl);previewUrl='';if(savedPreview)preview.src=savedPreview;else preview.removeAttribute('src');preview.style.display=savedPreview?'block':'none';toast(message)}resolve(false)};
+     const reader=new FileReader();reader.onerror=()=>fail('Could not read that image.');
+     reader.onload=()=>{
+      if(current!==revision)return resolve(true);
+      const image=new Image();image.onerror=()=>fail('Could not decode that image.');
+      image.onload=()=>{
+      if(current!==revision)return resolve(true);
       const scale=Math.min(1,1400/image.naturalWidth,1400/image.naturalHeight),canvas=document.createElement('canvas');
       canvas.width=Math.round(image.naturalWidth*scale);canvas.height=Math.round(image.naturalHeight*scale);
-      const context=canvas.getContext('2d');if(!context)return toast('Could not prepare the image.');
+      const context=canvas.getContext('2d');if(!context)return fail('Could not prepare the image.');
       const draw=()=>{context.fillStyle='#fff';context.fillRect(0,0,canvas.width,canvas.height);context.drawImage(image,0,0,canvas.width,canvas.height)};
       const encode=quality=>canvas.toBlob(blob=>{
-       if(!blob)return toast('Could not prepare the image.');
+       if(!blob)return fail('Could not prepare the image.');
        if(blob.size>700e3&&canvas.width>400){canvas.width=Math.max(400,Math.round(canvas.width*.8));canvas.height=Math.max(1,Math.round(canvas.width*image.naturalHeight/image.naturalWidth));draw();return encode(Math.max(.55,quality-.08))}
-       if(blob.size>700e3)return toast('This image cannot be compressed below 700KB.');
-       const result=new FileReader();result.onerror=()=>toast('Could not read the prepared image.');
-       result.onload=()=>{setValue(result.result);preview.src=result.result;preview.style.display='block'};
+       if(blob.size>700e3)return fail('This image cannot be compressed below 700KB.');
+       const result=new FileReader();result.onerror=()=>fail('Could not read the prepared image.');
+       result.onload=()=>{if(current===revision){setValue(result.result);savedPreview=result.result;preview.src=result.result;preview.style.display='block';if(previewUrl)URL.revokeObjectURL(previewUrl);previewUrl=''}resolve(true)};
        result.readAsDataURL(blob)
       },'image/jpeg',quality);
       draw();encode(.84)
@@ -260,11 +266,12 @@ async function prods(){const J=await A('GET','/products?page='+ap),L=J.items||[]
      image.src=reader.result
     };
     reader.readAsDataURL(file)
-   }
+    });photoTasks.set(id,task)
+   };
   };
   $('#pi').previousElementSibling.textContent='Main / primary photo (shown throughout the store)';
   photoInput('#pi','#pv',v=>{pend=v});photoInput('#pif','#pvf',v=>{pfront=v});photoInput('#pib','#pvb',v=>{pback=v});
-  $('#pf').onsubmit=async e=>{e.preventDefault();const f=Object.fromEntries(new FormData(e.target));const b={...f,category_id:f.category_id||null,price:+f.price,carton_price:f.carton_price===''?null:+f.carton_price,carton_qty:f.carton_qty===''?null:+f.carton_qty,discount:+f.discount||0,stock:f.stock===''?-1:+f.stock,active:!!f.active,image:pend||null,image_front:pfront||null,image_back:pback||null,colors:f.colors||'',quality:f.quality||'',video_url:f.video_url||'',featured:!!f.featured};try{p.id?await A('PUT','/products/'+p.id,b):await A('POST','/products',b);toast('Product saved');edit=null;admin()}catch(x){toast(x.message)}};return}
+  $('#pf').onsubmit=async e=>{e.preventDefault();try{if(!(await Promise.all(photoTasks.values())).every(Boolean))return;const f=Object.fromEntries(new FormData(e.target));const b={...f,category_id:f.category_id||null,price:+f.price,carton_price:f.carton_price===''?null:+f.carton_price,carton_qty:f.carton_qty===''?null:+f.carton_qty,discount:+f.discount||0,stock:f.stock===''?-1:+f.stock,active:!!f.active,image:pend||null,image_front:pfront||null,image_back:pback||null,colors:f.colors||'',quality:f.quality||'',video_url:f.video_url||'',featured:!!f.featured};p.id?await A('PUT','/products/'+p.id,b):await A('POST','/products',b);toast('Product saved');edit=null;admin()}catch(x){toast(x.message)}};return}
  $('#ab').innerHTML=`<button class="btn" onclick="edit='new';admin()">+ Add product</button>${L.length?`<div class="tbl"><table><tr><th>Name</th><th>Unit / Carton</th><th>Size</th><th>Stock</th><th></th></tr>${L.map(x=>`<tr><td>${esc(x.name)}${x.active?'':' <small>(hidden)</small>'}<br><small>${esc(x.sku)}</small></td><td>${money(x.price)}${x.carton_price?`<br><small>Carton: ${money(x.carton_price)}${x.carton_qty?' ('+x.carton_qty+')':''}</small>`:''}</td><td>${esc(x.size||'—')}</td><td>${x.stock}</td><td><div class="row"><button class="btn s sm" onclick="edit=${x.id};admin()">Edit</button><button class="btn s sm" onclick="quickPrice(${x.id})">Price</button><button class="btn s sm" onclick="adjustPrice(${x.id},1)">+ Price</button><button class="btn s sm" onclick="adjustPrice(${x.id},-1)">− Price</button>${x.carton_price?`<button class="btn s sm" onclick="quickCarton(${x.id})">Carton</button>`:''}<button class="btn s sm" onclick="quickStock(${x.id})">Stock</button><button class="btn s sm" onclick="tog(${x.id})">${x.active?'Hide':'Show'}</button><button class="btn d sm" onclick="delp(${x.id})">Delete</button></div></td></tr>`).join('')}</table></div>`:'<div class="empty">No products yet. Add your first one.</div>'}${J.total>25?`<div class="row" style="justify-content:center;margin-top:10px"><button class="btn s sm" ${ap<2?'disabled':''} onclick="ap--;admin()">Previous</button><span>Page ${ap}</span><button class="btn s sm" ${ap*25>=J.total?'disabled':''} onclick="ap++;admin()">Next</button></div>`:''}`;window.PL=L}
 async function quickPrice(id){const x=PL.find(p=>p.id==id),v=prompt('New unit price (₦):',x?.price??'');if(v===null)return;const n=Number(v);if(!Number.isInteger(n)||n<1)return toast('Invalid price.');try{await A('PUT','/products/'+id,{...x,price:n});toast('Unit price updated.');admin()}catch(e){toast(e.message)}}
 async function adjustPrice(id,dir){const x=PL.find(p=>p.id==id);const v=prompt(dir>0?'How much should be added to the unit price? (₦)':'How much should be deducted from the unit price? (₦)','500');if(v===null)return;const n=Number(v);if(!Number.isInteger(n)||n<1)return toast('Invalid amount.');const next=x.price+(dir*n);if(next<1)return toast('Price cannot be less than ₦1.');try{await A('PUT','/products/'+id,{...x,price:next});toast('Price updated to '+money(next));admin()}catch(e){toast(e.message)}}
