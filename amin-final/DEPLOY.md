@@ -10,6 +10,8 @@ Production storefront = `public/index.html`, served by `server.js`. There is no 
 5. Deploy. Startup applies the repeatable PostgreSQL schema migration and seeds the catalog idempotently. It creates an initial owner only when the database has no admin. The existing SQLite file is not copied, imported, or deleted.
 6. Confirm the service is healthy, sign in to `/admin`, verify the catalog and settings, then test Paystack with a test key before switching to a live key.
 
+Product photos uploaded in the admin are stored in PostgreSQL and served by the application; they do not depend on Render's ephemeral filesystem or a local disk mount. The storefront keeps its SVG placeholder for products without an uploaded photo.
+
 Render's PostgreSQL connection string is a credential. Do not print it, paste it into a committed file, or share it in support logs. `npm run db:migrate` can be used to initialize/check the schema explicitly; application startup also runs the same idempotent migration. PostgreSQL deployments use Render's database backup/restore controls; the app's local `BACKUP_DIR`/SQLite `VACUUM INTO` job is only used with SQLite.
 
 **Do not import production SQLite data until the PostgreSQL schema and application compatibility are verified.** The safe data-migration tool is available in the section below; it is not run automatically by deployment.

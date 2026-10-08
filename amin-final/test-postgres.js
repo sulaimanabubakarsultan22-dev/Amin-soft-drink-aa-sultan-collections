@@ -25,8 +25,10 @@ const requiredTables = [
 async function verifyStoreEndpoints(productId, migratedCategoryId, db, checkoutPhone) {
   const photoData = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/aYQAAAAASUVORK5CYII=';
   const photoBytes = Buffer.from(photoData.split(',')[1], 'base64');
-  await db.run('UPDATE products SET image=?,image_front=?,image_back=?,updated=? WHERE id=?',
-    photoData, photoData, photoData, new Date().toISOString(), productId);
+  const sessionToken = crypto.randomBytes(32).toString('hex'), sessionHash = crypto.createHash('sha256').update(sessionToken).digest('hex');
+  const admin = await db.get('INSERT INTO admins(name,email,hash,role,created) VALUES(?,?,?,?,?) RETURNING id',
+    'Photo integration admin', `photo-${productId}@example.test`, 'test-only-hash', 'owner', new Date().toISOString());
+  await db.run('INSERT INTO sessions(token_hash,admin_id,expires) VALUES(?,?,?)', sessionHash, admin.id, Date.now() + 60000);
   const portServer = net.createServer();
   await new Promise((resolve, reject) => {
     portServer.once('error', reject);
@@ -58,6 +60,22 @@ async function verifyStoreEndpoints(productId, migratedCategoryId, db, checkoutP
       await new Promise(resolve => setTimeout(resolve, 100));
     }
     assert.equal(productsResponse?.status, 200, `PostgreSQL-backed /api/products did not respond successfully:\n${output}`);
+    const productRow = await db.get('SELECT name,sku,description,category,price,discount,stock,active,category_id,carton_price,carton_qty,size,colors,quality,video_url,featured FROM products WHERE id=?', productId);
+    const multipart = new FormData();
+    for (const [name, value] of Object.entries(productRow)) if (value != null) multipart.append(name, String(value));
+    for (const name of ['image', 'image_front', 'image_back']) multipart.append(name, new Blob([photoBytes], { type: 'image/png' }), `${name}.png`);
+    const uploadResponse = await fetch(`${base}/api/admin/products/${productId}`, {
+      method: 'PUT',
+      headers: { cookie: `sid=${sessionToken}`, 'x-requested-with': 'store' },
+      body: multipart
+    });
+    const uploadResult = await uploadResponse.json();
+    assert.equal(uploadResponse.status, 200, `PostgreSQL-backed multipart photo upload failed: ${JSON.stringify(uploadResult)}`);
+    assert.match(uploadResult.image, new RegExp(`^/img/${productId}\\?v=`), 'PostgreSQL upload response includes its cache-busted primary photo URL');
+    assert.deepEqual(await db.get('SELECT image,image_front,image_back FROM products WHERE id=?', productId),
+      { image: photoData, image_front: photoData, image_back: photoData },
+      'multipart photo bytes are persisted in the PostgreSQL product photo columns');
+
     const products = await productsResponse.json();
     assert.ok(Array.isArray(products.items), '/api/products returns an items array');
     assert.ok(products.items.some(product => product.id === productId), '/api/products returns the migrated product');

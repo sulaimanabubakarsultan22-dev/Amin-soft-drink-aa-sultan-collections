@@ -175,6 +175,49 @@ async function backup() {
 const CV = '(category_id IS NULL OR category_id IN (SELECT id FROM categories WHERE active=1))';
 const IMG = /^data:image\/(jpeg|png|webp);base64,[A-Za-z0-9+/=]+$/;
 const PRODUCT_ART = /^\/assets\/products\/[a-z0-9-]+\/[a-z0-9-]+\.svg$/;
+function parseMultipart(raw, contentType) {
+  const boundaryMatch = /(?:^|;)\s*boundary=(?:"([^"]+)"|([^;\s]+))/i.exec(contentType || '');
+  const boundary = boundaryMatch?.[1] || boundaryMatch?.[2];
+  if (!/^multipart\/form-data\b/i.test(contentType || '') || !boundary || boundary.length > 200 || /[\r\n]/.test(boundary))
+    throw new Err(400, 'Invalid multipart form data');
+
+  const delimiter = Buffer.from('--' + boundary), separator = Buffer.from('\r\n--' + boundary), headerSeparator = Buffer.from('\r\n\r\n');
+  if (!raw.subarray(0, delimiter.length).equals(delimiter)) throw new Err(400, 'Invalid multipart form data');
+  const fields = {};
+  let cursor = delimiter.length;
+  while (cursor < raw.length) {
+    if (raw.subarray(cursor, cursor + 2).toString() === '--') break;
+    if (raw.subarray(cursor, cursor + 2).toString() !== '\r\n') throw new Err(400, 'Invalid multipart form data');
+    cursor += 2;
+    const headersEnd = raw.indexOf(headerSeparator, cursor);
+    if (headersEnd < 0) throw new Err(400, 'Invalid multipart form data');
+    const headers = raw.subarray(cursor, headersEnd).toString('latin1');
+    const disposition = /^content-disposition:\s*form-data;\s*name="([^"]+)"(?:;\s*filename="([^"]*)")?/im.exec(headers);
+    if (!disposition) throw new Err(400, 'Invalid multipart form data');
+    const name = disposition[1];
+    if (Object.hasOwn(fields, name)) throw new Err(400, 'Duplicate multipart field');
+    const valueStart = headersEnd + headerSeparator.length;
+    const next = raw.indexOf(separator, valueStart);
+    if (next < 0) throw new Err(400, 'Invalid multipart form data');
+    const value = raw.subarray(valueStart, next);
+
+    if (disposition[2] !== undefined) {
+      const mediaType = /^content-type:\s*(image\/(?:jpeg|png|webp))\s*$/im.exec(headers)?.[1]?.toLowerCase();
+      if (!['image', 'image_front', 'image_back'].includes(name) || !mediaType || !value.length || value.length > 700e3)
+        throw new Err(400, 'Product photos must be JPG, PNG or WebP files under 700KB');
+      const dataUrl = `data:${mediaType};base64,${value.toString('base64')}`;
+      if (!validProductPhoto(dataUrl)) throw new Err(400, 'Uploaded product photo is not a valid image');
+      fields[name] = dataUrl;
+    } else {
+      fields[name] = value.toString('utf8');
+    }
+    cursor = next + 2 + delimiter.length;
+  }
+  for (const name of ['active', 'featured']) {
+    if (Object.hasOwn(fields, name)) fields[name] = fields[name] === 'true' || fields[name] === '1';
+  }
+  return fields;
+}
 const validProductPhoto = value => {
   const match = IMG.exec(value || '');
   if (!match) return false;
@@ -207,7 +250,11 @@ async function prodFields(b) {
 const orderView = async o => ({ ...o, items: await db.prepare('SELECT name,qty,price,pack,pack_qty FROM order_items WHERE order_id=?').all(o.id), payments: await db.prepare('SELECT reference,provider,amount,currency,status,created,verified FROM payments WHERE order_id=? ORDER BY id').all(o.id), events: await db.prepare('SELECT label,at FROM order_events WHERE order_id=? ORDER BY id').all(o.id) });
 
 async function route(req, res, url, raw) {
-  const m = req.method, p = url.pathname, q = url.searchParams, body = () => { try { return JSON.parse(raw.toString() || '{}'); } catch { throw new Err(400, 'Invalid JSON'); } };
+  const m = req.method, p = url.pathname, q = url.searchParams, body = () => {
+    if (/^multipart\/form-data\b/i.test(req.headers['content-type'] || ''))
+      return parseMultipart(raw, req.headers['content-type']);
+    try { return JSON.parse(raw.toString() || '{}'); } catch { throw new Err(400, 'Invalid JSON'); }
+  };
   let r;
   if (m === 'GET' && p === '/api/settings') return settings();
   if (m === 'GET' && p === '/api/loyalty/leaderboard') {
@@ -481,7 +528,7 @@ async function route(req, res, url, raw) {
     if (m === 'POST' && P === 'products') { await adminOf(req, ['owner', 'admin']); try { const f = await prodFields(body()); return { id: (await db.prepare('INSERT INTO products(name,sku,description,category,price,discount,stock,active,image,category_id,carton_price,carton_qty,size,image_front,image_back,colors,quality,video_url,featured,created,updated) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?) RETURNING id').get(...f, now(), now())).id }; } catch (e) { if (/UNIQUE/.test(e.message)) throw new Err(409, 'SKU already exists'); throw e; } }
     if ((r = /^products\/(\d+)$/.exec(P))) {
       await adminOf(req, ['owner', 'admin']);
-      if (m === 'PUT') { const b = body(); const oldp=await db.prepare('SELECT image,image_front,image_back FROM products WHERE id=?').get(+r[1]); if (String(b.image || '').startsWith('/img/')) b.image = oldp?.image || null; if (String(b.image_front || '').startsWith('/imgfront/')) b.image_front = oldp?.image_front || null; if (String(b.image_back || '').startsWith('/imgback/')) b.image_back = oldp?.image_back || null; const f = await prodFields(b); await db.prepare('UPDATE products SET name=?,sku=?,description=?,category=?,price=?,discount=?,stock=?,active=?,image=?,category_id=?,carton_price=?,carton_qty=?,size=?,image_front=?,image_back=?,colors=?,quality=?,video_url=?,featured=?,updated=? WHERE id=?').run(...f, now(), +r[1]); return { ok: true }; }
+      if (m === 'PUT') { const b = body(); const oldp=await db.prepare('SELECT image,image_front,image_back FROM products WHERE id=?').get(+r[1]); if (String(b.image || '').startsWith('/img/')) b.image = oldp?.image || null; if (String(b.image_front || '').startsWith('/imgfront/')) b.image_front = oldp?.image_front || null; if (String(b.image_back || '').startsWith('/imgback/')) b.image_back = oldp?.image_back || null; const f = await prodFields(b), updated = now(); await db.prepare('UPDATE products SET name=?,sku=?,description=?,category=?,price=?,discount=?,stock=?,active=?,image=?,category_id=?,carton_price=?,carton_qty=?,size=?,image_front=?,image_back=?,colors=?,quality=?,video_url=?,featured=?,updated=? WHERE id=?').run(...f, updated, +r[1]); const photos = await db.prepare(`SELECT ${IMGURL} AS image,CASE WHEN image_front IS NULL THEN NULL ELSE '/imgfront/'||id||'?v='||replace(replace(updated,':',''),'.','') END AS image_front,CASE WHEN image_back IS NULL THEN NULL ELSE '/imgback/'||id||'?v='||replace(replace(updated,':',''),'.','') END AS image_back FROM products WHERE id=?`).get(+r[1]); return { ok: true, ...photos }; }
       if (m === 'DELETE') { if (await db.prepare('SELECT 1 FROM order_items WHERE product_id=?').get(+r[1])) { await db.prepare('UPDATE products SET active=0 WHERE id=?').run(+r[1]); return { ok: true, note: 'Has past orders, so it was hidden instead of deleted' }; } await db.prepare('DELETE FROM products WHERE id=?').run(+r[1]); return { ok: true }; }
     }
   }
