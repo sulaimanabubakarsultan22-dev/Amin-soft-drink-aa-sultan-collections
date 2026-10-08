@@ -14,14 +14,14 @@ const sqliteTables = `
 CREATE TABLE IF NOT EXISTS admins(id INTEGER PRIMARY KEY,name TEXT,email TEXT UNIQUE,hash TEXT,role TEXT,created TEXT,last_login TEXT,active INTEGER DEFAULT 1);
 CREATE TABLE IF NOT EXISTS sessions(token_hash TEXT PRIMARY KEY,admin_id INTEGER REFERENCES admins(id),expires INTEGER);
 CREATE TABLE IF NOT EXISTS categories(id INTEGER PRIMARY KEY,name TEXT UNIQUE NOT NULL,active INTEGER DEFAULT 1);
-CREATE TABLE IF NOT EXISTS products(id INTEGER PRIMARY KEY,name TEXT NOT NULL,sku TEXT UNIQUE,description TEXT,category TEXT,price INTEGER NOT NULL CHECK(price>0),discount INTEGER DEFAULT 0 CHECK(discount>=0),stock INTEGER NOT NULL CHECK(stock>=0),active INTEGER DEFAULT 1,image TEXT,created TEXT,updated TEXT,carton_price INTEGER,carton_qty INTEGER,size TEXT,image_front TEXT,image_back TEXT,colors TEXT,quality TEXT,video_url TEXT,featured INTEGER DEFAULT 0,category_id INTEGER REFERENCES categories(id));
+CREATE TABLE IF NOT EXISTS products(id INTEGER PRIMARY KEY,name TEXT NOT NULL,sku TEXT UNIQUE,description TEXT,category TEXT,product_type TEXT NOT NULL DEFAULT 'GOODS' CHECK(product_type IN ('DRINK','CLOTHING','GOODS')),price INTEGER NOT NULL CHECK(price>0),discount INTEGER DEFAULT 0 CHECK(discount>=0),stock INTEGER NOT NULL CHECK(stock>=0),active INTEGER DEFAULT 1,image TEXT,created TEXT,updated TEXT,carton_price INTEGER,carton_qty INTEGER,size TEXT,image_front TEXT,image_back TEXT,colors TEXT,quality TEXT,video_url TEXT,featured INTEGER DEFAULT 0,category_id INTEGER REFERENCES categories(id),style TEXT,best_seller INTEGER NOT NULL DEFAULT 0,new_arrival INTEGER NOT NULL DEFAULT 0,flash_deal INTEGER NOT NULL DEFAULT 0,low_stock INTEGER NOT NULL DEFAULT 0);
 CREATE INDEX IF NOT EXISTS ix_prod ON products(category,active);
 CREATE INDEX IF NOT EXISTS ix_pcat ON products(category_id);
 CREATE TABLE IF NOT EXISTS customers(id INTEGER PRIMARY KEY,name TEXT,phone TEXT UNIQUE,email TEXT,created TEXT);
-CREATE TABLE IF NOT EXISTS orders(id INTEGER PRIMARY KEY,no TEXT UNIQUE,customer_id INTEGER REFERENCES customers(id),address TEXT,state TEXT,city TEXT,notes TEXT,gps TEXT,subtotal INTEGER,fee INTEGER,total INTEGER,pay_status TEXT DEFAULT 'pending',status TEXT DEFAULT 'payment_pending',stocked INTEGER DEFAULT 0,created TEXT,updated TEXT,discount INTEGER NOT NULL DEFAULT 0,coupon_code TEXT,idem TEXT);
+CREATE TABLE IF NOT EXISTS orders(id INTEGER PRIMARY KEY,no TEXT UNIQUE,customer_id INTEGER REFERENCES customers(id),address TEXT,state TEXT,city TEXT,notes TEXT,gps TEXT,subtotal INTEGER,fee INTEGER,total INTEGER,pay_status TEXT DEFAULT 'pending',status TEXT DEFAULT 'payment_pending',stocked INTEGER DEFAULT 0,created TEXT,updated TEXT,discount INTEGER NOT NULL DEFAULT 0,coupon_code TEXT,idem TEXT,delivery_option TEXT NOT NULL DEFAULT 'standard');
 CREATE INDEX IF NOT EXISTS ix_ord ON orders(pay_status,status,customer_id);
 CREATE UNIQUE INDEX IF NOT EXISTS ux_idem ON orders(idem);
-CREATE TABLE IF NOT EXISTS order_items(id INTEGER PRIMARY KEY,order_id INTEGER REFERENCES orders(id),product_id INTEGER,name TEXT,qty INTEGER,price INTEGER,pack TEXT DEFAULT 'unit',pack_qty INTEGER DEFAULT 1);
+CREATE TABLE IF NOT EXISTS order_items(id INTEGER PRIMARY KEY,order_id INTEGER REFERENCES orders(id),product_id INTEGER,name TEXT,qty INTEGER,price INTEGER,pack TEXT DEFAULT 'unit',pack_qty INTEGER DEFAULT 1,variant TEXT NOT NULL DEFAULT '{}');
 CREATE TABLE IF NOT EXISTS payments(id INTEGER PRIMARY KEY,order_id INTEGER REFERENCES orders(id),provider TEXT,reference TEXT UNIQUE,amount INTEGER,currency TEXT,status TEXT,response TEXT,created TEXT,verified TEXT);
 CREATE TABLE IF NOT EXISTS settings(k TEXT PRIMARY KEY,v TEXT);
 CREATE TABLE IF NOT EXISTS order_events(id INTEGER PRIMARY KEY,order_id INTEGER REFERENCES orders(id),label TEXT,at TEXT);
@@ -37,10 +37,14 @@ const sqliteColumns = {
     carton_price: 'INTEGER', carton_qty: 'INTEGER', size: 'TEXT',
     image_front: 'TEXT', image_back: 'TEXT', colors: 'TEXT',
     quality: 'TEXT', video_url: 'TEXT', featured: 'INTEGER DEFAULT 0',
-    category_id: 'INTEGER REFERENCES categories(id)'
+    category_id: 'INTEGER REFERENCES categories(id)',
+    product_type: "TEXT NOT NULL DEFAULT 'GOODS' CHECK(product_type IN ('DRINK','CLOTHING','GOODS'))",
+    style: 'TEXT', best_seller: 'INTEGER NOT NULL DEFAULT 0',
+    new_arrival: 'INTEGER NOT NULL DEFAULT 0', flash_deal: 'INTEGER NOT NULL DEFAULT 0',
+    low_stock: 'INTEGER NOT NULL DEFAULT 0'
   },
-  orders: { discount: 'INTEGER NOT NULL DEFAULT 0', coupon_code: 'TEXT', idem: 'TEXT' },
-  order_items: { pack: "TEXT DEFAULT 'unit'", pack_qty: 'INTEGER DEFAULT 1' }
+  orders: { discount: 'INTEGER NOT NULL DEFAULT 0', coupon_code: 'TEXT', idem: 'TEXT', delivery_option: "TEXT NOT NULL DEFAULT 'standard'" },
+  order_items: { pack: "TEXT DEFAULT 'unit'", pack_qty: 'INTEGER DEFAULT 1', variant: "TEXT NOT NULL DEFAULT '{}'" }
 };
 
 function sqliteColumnExists(db, table, column) {
@@ -54,6 +58,7 @@ function translateSQLiteSql(sql) {
 function migrateSQLite(db) {
   db.exec('PRAGMA foreign_keys=ON; PRAGMA journal_mode=WAL;');
   db.exec(sqliteTables);
+  const classifyProductTypes = !sqliteColumnExists(db, 'products', 'product_type');
   for (const [table, columns] of Object.entries(sqliteColumns)) {
     for (const [column, type] of Object.entries(columns)) {
       if (!sqliteColumnExists(db, table, column)) db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${type}`);
@@ -63,6 +68,13 @@ function migrateSQLite(db) {
   for (const row of db.prepare("SELECT DISTINCT category FROM products WHERE category<>'' AND category_id IS NULL").all()) {
     db.prepare('INSERT OR IGNORE INTO categories(name) VALUES(?)').run(row.category);
     db.prepare('UPDATE products SET category_id=(SELECT id FROM categories WHERE name=?) WHERE category=? AND category_id IS NULL').run(row.category, row.category);
+  }
+  if (classifyProductTypes) {
+    db.exec(`UPDATE products SET product_type=CASE
+      WHEN lower(COALESCE(name,'')) LIKE '%thread%' OR lower(COALESCE(name,'')) LIKE '%needle%' OR lower(COALESCE(name,'')) LIKE '%zipper%' OR lower(COALESCE(name,'')) LIKE '%button%' OR lower(COALESCE(name,'')) LIKE '%tape%' OR lower(COALESCE(name,'')) LIKE '%chalk%' OR lower(COALESCE(name,'')) LIKE '%elastic%' OR lower(COALESCE(name,'')) LIKE '%fabric%' OR lower(COALESCE(name,'')) LIKE '%scissor%' OR lower(COALESCE(name,'')) LIKE '%bobbin%' OR lower(COALESCE(name,'')) LIKE '%bead%' OR lower(COALESCE(name,'')) LIKE '%sequin%' OR lower(COALESCE(name,'')) LIKE '%trimming%' THEN 'GOODS'
+      WHEN lower(COALESCE(category,'')) LIKE '%drink%' OR lower(COALESCE(category,'')) LIKE '%juice%' OR lower(COALESCE(category,'')) LIKE '%water%' THEN 'DRINK'
+      WHEN lower(COALESCE(category,'')) LIKE '%cloth%' OR lower(COALESCE(category,'')) LIKE '%fashion%' OR lower(COALESCE(category,'')) LIKE '%apparel%' OR lower(COALESCE(category,'')) LIKE '%wear%' OR lower(COALESCE(category,'')) LIKE '%maza%' OR lower(COALESCE(category,'')) LIKE '%mata%' OR lower(COALESCE(category,'')) LIKE '%yara%' OR lower(COALESCE(category,'')) LIKE '%riguna%' OR lower(COALESCE(category,'')) LIKE '%baby%' OR lower(COALESCE(category,'')) LIKE '%kids%' THEN 'CLOTHING'
+      ELSE 'GOODS' END`);
   }
 }
 
@@ -238,23 +250,26 @@ function normalizePostgresError(error) {
 async function migratePostgres(pool) {
   await pool.query('CREATE TABLE IF NOT EXISTS schema_migrations(version TEXT PRIMARY KEY, applied_at TEXT NOT NULL)');
   const { rows } = await pool.query('SELECT version FROM schema_migrations');
-  if (rows.some(row => row.version === '001-initial')) return;
-  const sql = fs.readFileSync(path.join(migrationsDir, 'postgres', '001-initial.sql'), 'utf8');
-  const client = await pool.connect();
-  try {
-    await client.query('BEGIN');
-    await client.query(sql);
-    await client.query("INSERT INTO schema_migrations(version,applied_at) VALUES('001-initial',CURRENT_TIMESTAMP::text)");
-    await client.query('COMMIT');
-  } catch (error) {
+  const applied = new Set(rows.map(row => row.version));
+  for (const version of ['001-initial', '002-product-types-and-order-variants', '003-marketplace-merchandising', '004-low-stock-control']) {
+    if (applied.has(version)) continue;
+    const sql = fs.readFileSync(path.join(migrationsDir, 'postgres', `${version}.sql`), 'utf8');
+    const client = await pool.connect();
     try {
-      await client.query('ROLLBACK');
-    } catch (rollbackError) {
-      throw new AggregateError([error, rollbackError], 'Schema migration and rollback both failed');
+      await client.query('BEGIN');
+      await client.query(sql);
+      await client.query('INSERT INTO schema_migrations(version,applied_at) VALUES($1,CURRENT_TIMESTAMP::text)', [version]);
+      await client.query('COMMIT');
+    } catch (error) {
+      try {
+        await client.query('ROLLBACK');
+      } catch (rollbackError) {
+        throw new AggregateError([error, rollbackError], 'Schema migration and rollback both failed');
+      }
+      throw error;
+    } finally {
+      client.release();
     }
-    throw error;
-  } finally {
-    client.release();
   }
 }
 

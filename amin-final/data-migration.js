@@ -8,10 +8,10 @@ const TABLES = [
   { name: 'admins', key: ['id'], columns: ['id', 'name', 'email', 'hash', 'role', 'created', 'last_login', 'active'], unique: [['email']] },
   { name: 'categories', key: ['id'], columns: ['id', 'name', 'active'], unique: [['name']] },
   { name: 'customers', key: ['id'], columns: ['id', 'name', 'phone', 'email', 'created'], unique: [['phone']] },
-  { name: 'products', key: ['id'], columns: ['id', 'name', 'sku', 'description', 'category', 'price', 'discount', 'stock', 'active', 'image', 'created', 'updated', 'carton_price', 'carton_qty', 'size', 'image_front', 'image_back', 'colors', 'quality', 'video_url', 'featured', 'category_id'], unique: [['sku']] },
+  { name: 'products', key: ['id'], columns: ['id', 'name', 'sku', 'description', 'category', 'product_type', 'price', 'discount', 'stock', 'active', 'image', 'created', 'updated', 'carton_price', 'carton_qty', 'size', 'image_front', 'image_back', 'colors', 'style', 'quality', 'video_url', 'featured', 'best_seller', 'new_arrival', 'flash_deal', 'category_id'], unique: [['sku']] },
   { name: 'sessions', key: ['token_hash'], columns: ['token_hash', 'admin_id', 'expires'] },
-  { name: 'orders', key: ['id'], columns: ['id', 'no', 'customer_id', 'address', 'state', 'city', 'notes', 'gps', 'subtotal', 'fee', 'total', 'pay_status', 'status', 'stocked', 'created', 'updated', 'discount', 'coupon_code', 'idem'], unique: [['no'], ['idem']] },
-  { name: 'order_items', key: ['id'], columns: ['id', 'order_id', 'product_id', 'name', 'qty', 'price', 'pack', 'pack_qty'] },
+  { name: 'orders', key: ['id'], columns: ['id', 'no', 'customer_id', 'address', 'state', 'city', 'notes', 'gps', 'subtotal', 'fee', 'total', 'pay_status', 'status', 'stocked', 'created', 'updated', 'discount', 'coupon_code', 'idem', 'delivery_option'], unique: [['no'], ['idem']] },
+  { name: 'order_items', key: ['id'], columns: ['id', 'order_id', 'product_id', 'name', 'qty', 'price', 'pack', 'pack_qty', 'variant'] },
   { name: 'payments', key: ['id'], columns: ['id', 'order_id', 'provider', 'reference', 'amount', 'currency', 'status', 'response', 'created', 'verified'], unique: [['reference']] },
   { name: 'order_events', key: ['id'], columns: ['id', 'order_id', 'label', 'at'] },
   { name: 'settings', key: ['k'], columns: ['k', 'v'] },
@@ -35,7 +35,9 @@ const RELATIONSHIPS = [
 ];
 const OPTIONAL_TABLES = new Set(['annual_award_winners', 'annual_award_config', 'coupons']);
 const SOURCE_DEFAULTS = {
-  orders: { discount: '0', coupon_code: 'NULL' }
+  products: { product_type: "CASE WHEN lower(COALESCE(name,'')) LIKE '%thread%' OR lower(COALESCE(name,'')) LIKE '%needle%' OR lower(COALESCE(name,'')) LIKE '%zipper%' OR lower(COALESCE(name,'')) LIKE '%button%' OR lower(COALESCE(name,'')) LIKE '%tape%' OR lower(COALESCE(name,'')) LIKE '%chalk%' OR lower(COALESCE(name,'')) LIKE '%elastic%' OR lower(COALESCE(name,'')) LIKE '%fabric%' OR lower(COALESCE(name,'')) LIKE '%scissor%' OR lower(COALESCE(name,'')) LIKE '%bobbin%' OR lower(COALESCE(name,'')) LIKE '%bead%' OR lower(COALESCE(name,'')) LIKE '%sequin%' OR lower(COALESCE(name,'')) LIKE '%trimming%' THEN 'GOODS' WHEN lower(COALESCE(category,'')) LIKE '%drink%' OR lower(COALESCE(category,'')) LIKE '%juice%' OR lower(COALESCE(category,'')) LIKE '%water%' THEN 'DRINK' WHEN lower(COALESCE(category,'')) LIKE '%cloth%' OR lower(COALESCE(category,'')) LIKE '%fashion%' OR lower(COALESCE(category,'')) LIKE '%apparel%' OR lower(COALESCE(category,'')) LIKE '%wear%' OR lower(COALESCE(category,'')) LIKE '%maza%' OR lower(COALESCE(category,'')) LIKE '%mata%' OR lower(COALESCE(category,'')) LIKE '%yara%' OR lower(COALESCE(category,'')) LIKE '%riguna%' OR lower(COALESCE(category,'')) LIKE '%baby%' OR lower(COALESCE(category,'')) LIKE '%kids%' THEN 'CLOTHING' ELSE 'GOODS' END", style: 'NULL', best_seller: '0', new_arrival: '0', flash_deal: '0' },
+  orders: { discount: '0', coupon_code: 'NULL', delivery_option: "'standard'" },
+  order_items: { variant: "'{}'" }
 };
 const IDENTITY_KEYS = {
   admins: [['email']],

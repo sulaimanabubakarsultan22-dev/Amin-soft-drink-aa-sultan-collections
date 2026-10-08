@@ -41,6 +41,7 @@ const description = product => {
   if (product.category === 'Sewing Materials') return `${product.name} for sewing, tailoring, and creative projects.`;
   return `${product.name} from our ${product.category.toLowerCase()} range.`;
 };
+const productType = category => /drink|juice|water/i.test(category) ? 'DRINK' : /clothing|fashion|apparel|wear/i.test(category) ? 'CLOTHING' : 'GOODS';
 
 async function seedCatalog() {
   const db = await createDatabase();
@@ -82,8 +83,8 @@ async function seedCatalog() {
       const category = await getCategory(product.category);
       const old = await db.get('SELECT id,image FROM products WHERE name=? AND category=? ORDER BY id LIMIT 1', product.name, product.category);
       if (!old && !product.legacy) {
-        await db.run('INSERT INTO products(name,sku,description,category,price,discount,stock,active,image,created,updated,carton_price,carton_qty,size,category_id) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
-          product.name, null, product.description || description(product), product.category, product.price, 0, product.stock || 100, 1, imagePath(product), now(), now(), null, null, product.size || null, category.id);
+        await db.run('INSERT INTO products(name,sku,description,category,product_type,price,discount,stock,active,image,created,updated,carton_price,carton_qty,size,category_id) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
+          product.name, null, product.description || description(product), product.category, productType(product.category), product.price, 0, product.stock || 100, 1, imagePath(product), now(), now(), null, null, product.size || null, category.id);
       } else if (old && !old.image) {
         await db.run('UPDATE products SET image=? WHERE id=?', imagePath(product), old.id);
       }

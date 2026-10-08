@@ -87,6 +87,8 @@ async function createOrder(b, idem) {
   if (email && !/^\S+@\S+\.\S+$/.test(email)) throw new Err(400, 'Email is invalid');
   const addr = str(b.address, 6, 300, 'Address'), state = str(b.state, 2, 60, 'State'), city = str(b.city, 2, 60, 'City');
   const notes = String(b.notes || '').slice(0, 300), gps = /^-?\d+\.\d+,-?\d+\.\d+$/.test(b.gps || '') ? b.gps : null;
+  const deliveryOption = b.delivery_option || 'standard';
+  if (deliveryOption !== 'standard') throw new Err(400, 'Select a valid delivery option');
   if (!Array.isArray(b.items) || !b.items.length || b.items.length > 50) throw new Err(400, 'Cart is empty');
   return tx(async () => {
     if (idem) {
@@ -98,13 +100,27 @@ async function createOrder(b, idem) {
     for (const it of b.items) {
       const p = await db.prepare('SELECT * FROM products WHERE id=? AND active=1 AND ' + CV).get(int(it.id, 1, 1e9, 'Product'));
       const q = int(it.qty, 1, 99, 'Quantity');
-      const pack = it.pack === 'carton' ? 'carton' : 'unit';
+      if (!p) throw new Err(409, 'A product is no longer available');
+      const pack = it.pack || 'unit';
+      if (!['unit', 'carton'].includes(pack)) throw new Err(400, 'Select Unit or Carton');
+      if (pack === 'carton' && p.product_type !== 'DRINK') throw new Err(400, 'Carton pricing is only available for drinks');
+      if (pack === 'carton' && (!p.carton_price || !p.carton_qty)) throw new Err(400, `${p.name}: carton price and quantity are not configured`);
       const packQty = pack === 'carton' ? int(p?.carton_qty, 1, 1000, 'Carton quantity') : 1;
       const unitPrice = pack === 'carton' ? int(p?.carton_price, 1, 1e9, 'Carton price') : eff(p || {});
-      if (!p) throw new Err(409, 'A product is no longer available');
+      const requestedVariant = it.variant == null ? {} : it.variant;
+      if (!requestedVariant || typeof requestedVariant !== 'object' || Array.isArray(requestedVariant) ||
+          Object.keys(requestedVariant).some(key => !['size', 'color', 'style'].includes(key)))
+        throw new Err(400, `${p.name}: variant selection is invalid`);
+      const variant = {};
+      for (const [key, field] of [['size', p.size], ['color', p.colors], ['style', p.style]]) {
+        const options = variantOptions(field);
+        const choice = String(requestedVariant[key] || '').trim();
+        if (options.length && (!choice || !options.includes(choice))) throw new Err(400, `${p.name}: select a valid ${key}`);
+        if (choice) variant[key] = choice;
+      }
       const needed = q * packQty;
       if (p.stock < needed) throw new Err(409, `${p.name}: only ${p.stock} unit(s) left`);
-      sub += unitPrice * q; lines.push([p, q, pack, packQty, unitPrice]);
+      sub += unitPrice * q; lines.push({ product: p, qty: q, pack, packQty, price: unitPrice, variant });
     }
     const couponCode = String(b.coupon || '').trim().toUpperCase();
     let discount = 0;
@@ -115,10 +131,19 @@ async function createOrder(b, idem) {
     }
     const cid = (await db.prepare(`INSERT INTO customers(name,phone,email,created) VALUES(?,?,?,?) ON CONFLICT(phone) DO UPDATE SET name=excluded.name,email=COALESCE(excluded.email,customers.email) RETURNING id`).get(name, phone, email, now())).id;
     const no = 'ORD-' + crypto.randomBytes(4).toString('hex').toUpperCase();
-    const oid = (await db.prepare('INSERT INTO orders(no,customer_id,address,state,city,notes,gps,subtotal,fee,total,discount,coupon_code,idem,created,updated) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?) RETURNING id').get(no, cid, addr, state, city, notes, gps, sub, fee, sub + fee - discount, discount, couponCode || null, idem || null, now(), now())).id;
+    const oid = (await db.prepare('INSERT INTO orders(no,customer_id,address,state,city,notes,gps,subtotal,fee,total,discount,coupon_code,idem,created,updated,delivery_option) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?) RETURNING id').get(no, cid, addr, state, city, notes, gps, sub, fee, sub + fee - discount, discount, couponCode || null, idem || null, now(), now(), deliveryOption)).id;
     await ev(oid, 'Order placed'); notify('order.created', { no });
-    for (const [p, q, pack, packQty, price] of lines) await db.prepare('INSERT INTO order_items(order_id,product_id,name,qty,price,pack,pack_qty) VALUES(?,?,?,?,?,?,?)').run(oid, p.id, p.name, q, price, pack, packQty);
-    return { no, total: sub + fee - discount, subtotal: sub, fee, discount, coupon_code: couponCode || null };
+    for (const line of lines) await db.prepare('INSERT INTO order_items(order_id,product_id,name,qty,price,pack,pack_qty,variant) VALUES(?,?,?,?,?,?,?,?)')
+      .run(oid, line.product.id, line.product.name, line.qty, line.price, line.pack, line.packQty, JSON.stringify(line.variant));
+    return {
+      no, total: sub + fee - discount, subtotal: sub, fee, discount, coupon_code: couponCode || null,
+      delivery_option: deliveryOption,
+      items: lines.map(line => ({
+        id: line.product.id, name: line.product.name, image: line.product.image ? `/img/${line.product.id}` : null,
+        qty: line.qty, pack: line.pack, pack_qty: line.packQty, price: line.price, subtotal: line.price * line.qty,
+        variant: line.variant
+      }))
+    };
   });
 }
 
@@ -161,6 +186,7 @@ async function setStatus(no, to) {
 }
 
 const IMGURL = "CASE WHEN image IS NULL THEN NULL ELSE '/img/'||id||'?v='||replace(replace(updated,':',''),'.','') END";
+const variantOptions = value => String(value || '').split(/[,;|]/).map(option => option.trim()).filter(Boolean);
 const slug = s => String(s).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 60);
 const X = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const HDR = { 'content-type': 'text/html; charset=utf-8', 'x-content-type-options': 'nosniff', 'x-frame-options': 'DENY', 'referrer-policy': 'same-origin', 'content-security-policy': "default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline'; connect-src 'self'; media-src 'self' https:; frame-ancestors 'none'", ...(PROD ? { 'strict-transport-security': 'max-age=31536000' } : {}) };
@@ -213,7 +239,7 @@ function parseMultipart(raw, contentType) {
     }
     cursor = next + 2 + delimiter.length;
   }
-  for (const name of ['active', 'featured']) {
+  for (const name of ['active', 'featured', 'best_seller', 'new_arrival', 'flash_deal', 'low_stock']) {
     if (Object.hasOwn(fields, name)) fields[name] = fields[name] === 'true' || fields[name] === '1';
   }
   return fields;
@@ -233,9 +259,14 @@ async function prodFields(b) {
   const carton_qty = b.carton_qty === '' || b.carton_qty == null ? null : int(b.carton_qty, 1, 1000, 'Carton quantity');
   const size = b.size ? String(b.size).trim().slice(0, 120) : null;
   const colors = b.colors ? String(b.colors).trim().slice(0, 300) : null;
+  const style = b.style ? String(b.style).trim().slice(0, 300) : null;
   const quality = b.quality ? String(b.quality).trim().slice(0, 500) : null;
   const video_url = b.video_url ? String(b.video_url).trim().slice(0, 500) : null;
   const featured = b.featured ? 1 : 0;
+  const best_seller = b.best_seller ? 1 : 0;
+  const new_arrival = b.new_arrival ? 1 : 0;
+  const flash_deal = b.flash_deal ? 1 : 0;
+  const low_stock = b.low_stock ? 1 : 0;
   if (discount >= price && discount) throw new Err(400, 'Discount must be lower than price');
   if (b.image && PRODUCT_ART.test(b.image)) {
     if (!fs.existsSync(path.join(__dirname, 'public', b.image.slice(1)))) throw new Err(400, 'Product illustration was not found');
@@ -245,9 +276,25 @@ async function prodFields(b) {
   if (video_url && !/^https?:\/\//i.test(video_url)) throw new Err(400, 'Video URL must start with https://');
   let cid = null, cname = '';
   if (b.category_id) { cid = int(b.category_id, 1, 1e9, 'Category'); const c = await db.prepare('SELECT name FROM categories WHERE id=?').get(cid); if (!c) throw new Err(400, 'Category does not exist'); cname = c.name; }
-  return [str(b.name, 2, 150, 'Name'), b.sku ? str(b.sku, 1, 50, 'SKU') : null, String(b.description || '').slice(0, 3000), cname, price, discount, int(b.stock, 0, 1e6, 'Stock'), b.active === false ? 0 : 1, b.image || null, cid, carton_price, carton_qty, size, b.image_front || null, b.image_back || null, colors, quality, video_url, featured];
+  const inferredType = /drink|juice|water/i.test(cname || b.category || '') ? 'DRINK' :
+    /clothing|fashion|apparel|wear/i.test(cname || b.category || '') ? 'CLOTHING' : 'GOODS';
+  const productType = String(b.product_type || inferredType).toUpperCase();
+  if (!['DRINK', 'CLOTHING', 'GOODS'].includes(productType)) throw new Err(400, 'Select Drink, Clothing, or Goods as the product type');
+  if (productType === 'DRINK' && ((carton_price === null) !== (carton_qty === null)))
+    throw new Err(400, 'Enter both carton price and items per carton, or leave both blank');
+  if (productType !== 'DRINK' && (carton_price !== null || carton_qty !== null))
+    throw new Err(400, 'Carton pricing is only available for drinks');
+  return [str(b.name, 2, 150, 'Name'), b.sku ? str(b.sku, 1, 50, 'SKU') : null, String(b.description || '').slice(0, 3000), cname, productType, price, discount, int(b.stock, 0, 1e6, 'Stock'), b.active === false ? 0 : 1, b.image || null, cid, carton_price, carton_qty, size, b.image_front || null, b.image_back || null, colors, style, quality, video_url, featured, best_seller, new_arrival, flash_deal, low_stock];
 }
-const orderView = async o => ({ ...o, items: await db.prepare('SELECT name,qty,price,pack,pack_qty FROM order_items WHERE order_id=?').all(o.id), payments: await db.prepare('SELECT reference,provider,amount,currency,status,created,verified FROM payments WHERE order_id=? ORDER BY id').all(o.id), events: await db.prepare('SELECT label,at FROM order_events WHERE order_id=? ORDER BY id').all(o.id) });
+const orderView = async o => ({
+  ...o,
+  items: (await db.prepare(`SELECT oi.name,oi.product_id,oi.qty,oi.price,oi.pack,oi.pack_qty,oi.variant,
+    CASE WHEN p.image IS NULL THEN NULL ELSE '/img/'||p.id||'?v='||replace(replace(p.updated,':',''),'.','') END AS image
+    FROM order_items oi LEFT JOIN products p ON p.id=oi.product_id WHERE oi.order_id=?`).all(o.id))
+    .map(item => ({ ...item, variant: JSON.parse(item.variant || '{}') })),
+  payments: await db.prepare('SELECT reference,provider,amount,currency,status,created,verified FROM payments WHERE order_id=? ORDER BY id').all(o.id),
+  events: await db.prepare('SELECT label,at FROM order_events WHERE order_id=? ORDER BY id').all(o.id)
+});
 
 async function route(req, res, url, raw) {
   const m = req.method, p = url.pathname, q = url.searchParams, body = () => {
@@ -283,39 +330,63 @@ async function route(req, res, url, raw) {
     const ip = 'cp' + ipOf(req);
     if (limited(ip, 20, 36e5)) throw new Err(429, 'Too many coupon checks. Try again later.');
     hit(ip);
-    const b = body(), code = String(b.code || '').trim().toUpperCase(), subtotal = int(b.subtotal, 0, 1e9, 'Subtotal');
+    const b = body(), code = String(b.code || '').trim().toUpperCase(), subtotal = int(b.subtotal, 0, Number.MAX_SAFE_INTEGER, 'Subtotal');
     const coupon = await db.prepare('SELECT percent FROM coupons WHERE code=? AND active=1').get(code);
     if (!coupon) throw new Err(400, 'Coupon code is invalid or inactive');
     const discount = Math.floor(subtotal * coupon.percent / 100);
     return { code, percent: coupon.percent, discount, total: Math.max(0, subtotal + Math.max(0, parseInt((await settings()).fee) || 0) - discount) };
   }
-  if ((r = /^\/api\/products\/(\d+)$/.exec(p)) && m === 'GET') { const x = await db.prepare(`SELECT id,name,sku,description,category,category_id,price,discount,carton_price,carton_qty,size,stock,colors,quality,video_url,featured,${IMGURL} AS image,CASE WHEN image_front IS NULL THEN NULL ELSE '/imgfront/'||id||'?v='||replace(replace(updated,':',''),'.','') END AS image_front,CASE WHEN image_back IS NULL THEN NULL ELSE '/imgback/'||id||'?v='||replace(replace(updated,':',''),'.','') END AS image_back FROM products WHERE id=? AND active=1 AND ${CV}`).get(+r[1]); if (!x) throw new Err(404, 'Product not found'); return x; }
+  if ((r = /^\/api\/products\/(\d+)$/.exec(p)) && m === 'GET') { const x = await db.prepare(`SELECT id,name,sku,description,category,category_id,product_type,price,discount,CASE WHEN product_type='DRINK' THEN carton_price ELSE NULL END AS carton_price,CASE WHEN product_type='DRINK' THEN carton_qty ELSE NULL END AS carton_qty,size,stock,colors,style,quality,video_url,featured,best_seller,new_arrival,flash_deal,low_stock,${IMGURL} AS image,CASE WHEN image_front IS NULL THEN NULL ELSE '/imgfront/'||id||'?v='||replace(replace(updated,':',''),'.','') END AS image_front,CASE WHEN image_back IS NULL THEN NULL ELSE '/imgback/'||id||'?v='||replace(replace(updated,':',''),'.','') END AS image_back FROM products WHERE id=? AND active=1 AND ${CV}`).get(+r[1]); if (!x) throw new Err(404, 'Product not found'); return x; }
   if (m === 'GET' && p === '/api/products') {
     const pg = Math.max(1, +q.get('page') || 1), s = '%' + (q.get('q') || '').replace(/[%_]/g, '') + '%', cat = +q.get('cat') || 0;
     let w = 'active=1 AND ' + CV + " AND (name LIKE ? OR category LIKE ? OR sku LIKE ?) AND (CAST(? AS INTEGER)=0 OR category_id=CAST(? AS INTEGER)) AND (CAST(? AS INTEGER)=0 OR stock>0)";
     const a = [s, s, s, cat, cat, q.get('instock') === '1' ? 1 : 0];
     const add = (sql, ...values) => { w += ' AND (' + sql + ')'; a.push(...values); };
+    if (q.get('type')) {
+      const productType = q.get('type').toUpperCase();
+      if (!['DRINK', 'CLOTHING', 'GOODS'].includes(productType)) throw new Err(400, 'Product type filter is invalid');
+      add('product_type=?', productType);
+    }
+    const groups = {
+      drinks: "product_type='DRINK'",
+      'mens-clothing': "product_type='CLOTHING' AND ((lower(category) LIKE '%men%' AND lower(category) NOT LIKE '%women%' AND lower(category) NOT LIKE '%woman%' AND lower(category) NOT LIKE '%ladies%') OR (lower(category) LIKE '%male%' AND lower(category) NOT LIKE '%female%'))",
+      'womens-clothing': "product_type='CLOTHING' AND (lower(category) LIKE '%women%' OR lower(category) LIKE '%ladies%' OR lower(category) LIKE '%female%' OR lower(category) LIKE '%mata%')",
+      'childrens-clothing': "product_type='CLOTHING' AND (lower(category) LIKE '%children%' OR lower(category) LIKE '%kids%' OR lower(category) LIKE '%yara%')",
+      'babies-kids': "(lower(category) LIKE '%baby%' OR lower(category) LIKE '%babies%' OR lower(category) LIKE '%kids%' OR lower(category) LIKE '%children%' OR lower(category) LIKE '%yara%')",
+      'sewing-materials': "(lower(category) LIKE '%sewing%' OR lower(category) LIKE '%tailor%' OR lower(name) LIKE '%sewing%' OR lower(name) LIKE '%thread%' OR lower(name) LIKE '%needle%' OR lower(name) LIKE '%zipper%' OR lower(name) LIKE '%button%' OR lower(name) LIKE '%tape%' OR lower(name) LIKE '%chalk%' OR lower(name) LIKE '%elastic%' OR lower(name) LIKE '%fabric%' OR lower(name) LIKE '%scissor%' OR lower(name) LIKE '%bobbin%' OR lower(name) LIKE '%bead%' OR lower(name) LIKE '%sequin%' OR lower(name) LIKE '%trimming%')",
+      'other-goods': "product_type='GOODS' AND NOT (lower(category) LIKE '%sewing%' OR lower(category) LIKE '%tailor%' OR lower(name) LIKE '%sewing%' OR lower(name) LIKE '%thread%' OR lower(name) LIKE '%needle%' OR lower(name) LIKE '%zipper%' OR lower(name) LIKE '%button%' OR lower(name) LIKE '%tape%' OR lower(name) LIKE '%chalk%' OR lower(name) LIKE '%elastic%' OR lower(name) LIKE '%fabric%' OR lower(name) LIKE '%scissor%' OR lower(name) LIKE '%bobbin%' OR lower(name) LIKE '%bead%' OR lower(name) LIKE '%sequin%' OR lower(name) LIKE '%trimming%')"
+    };
+    if (q.get('group')) {
+      const group = groups[q.get('group')];
+      if (!group) throw new Err(400, 'Category filter is invalid');
+      add(group);
+    }
     const minPrice = q.get('min_price') === null || q.get('min_price') === '' ? null : Number(q.get('min_price'));
     const maxPrice = q.get('max_price') === null || q.get('max_price') === '' ? null : Number(q.get('max_price'));
     if (minPrice !== null) add('CASE WHEN discount>0 AND discount<price THEN discount ELSE price END>=?', int(minPrice, 0, 1e9, 'Minimum price'));
     if (maxPrice !== null) add('CASE WHEN discount>0 AND discount<price THEN discount ELSE price END<=?', int(maxPrice, 0, 1e9, 'Maximum price'));
     if (q.get('size')) add('size LIKE ?', '%' + q.get('size').slice(0, 80).replace(/[%_]/g, '') + '%');
     if (q.get('color')) add('colors LIKE ?', '%' + q.get('color').slice(0, 80).replace(/[%_]/g, '') + '%');
-    if (q.get('offer') === '1') add('(discount>0 AND discount<price) OR (carton_price IS NOT NULL AND carton_qty>0 AND carton_price<price*carton_qty)');
-    if (q.get('low_stock') === '1') add('stock BETWEEN 1 AND 5');
+    if (q.get('style')) add('style LIKE ?', '%' + q.get('style').slice(0, 80).replace(/[%_]/g, '') + '%');
+    if (q.get('offer') === '1') add('product_type=\'DRINK\' AND carton_price IS NOT NULL AND carton_qty>0 AND carton_price<(CASE WHEN discount>0 AND discount<price THEN discount ELSE price END)*carton_qty');
+    if (q.get('low_stock') === '1') add('(low_stock=1 OR stock BETWEEN 1 AND 5)');
+    if (q.get('best_seller') === '1') add('best_seller=1');
+    if (q.get('new_arrival') === '1') add('new_arrival=1');
+    if (q.get('flash_deal') === '1') add('flash_deal=1');
     const sort = {
       relevance: (q.get('q') ? 'CASE WHEN lower(name)=lower(CAST(? AS TEXT)) THEN 0 WHEN lower(name) LIKE lower(CAST(? AS TEXT)) THEN 1 ELSE 2 END, ' : '') + 'featured DESC,created DESC,id DESC',
       'best-selling': "(SELECT COALESCE(SUM(oi.qty*oi.pack_qty),0) FROM order_items oi JOIN orders o ON o.id=oi.order_id WHERE oi.product_id=products.id AND o.pay_status='paid' AND o.status NOT IN ('cancelled','refunded')) DESC,featured DESC,created DESC",
       newest: 'created DESC,id DESC',
       'price-low-high': 'CASE WHEN discount>0 AND discount<price THEN discount ELSE price END ASC,id DESC',
-      'price-high-low': 'CASE WHEN discount>0 AND discount<price THEN discount ELSE price END DESC,id DESC'
+      'price-high-low': 'CASE WHEN discount>0 AND discount<price THEN discount ELSE price END DESC,id DESC',
+      discount: 'CASE WHEN discount>0 AND discount<price THEN (price-discount)*100.0/price ELSE 0 END DESC,id DESC'
     }[q.get('sort')] || 'featured DESC,created DESC,id DESC';
     const orderArgs = q.get('sort') === 'relevance' && q.get('q') ? [q.get('q'), q.get('q') + '%'] : [];
-    const select = `SELECT id,name,sku,description,category,category_id,price,discount,carton_price,carton_qty,size,colors,quality,video_url,featured,stock,${IMGURL} AS image,CASE WHEN image_front IS NULL THEN NULL ELSE '/imgfront/'||id||'?v='||replace(replace(updated,':',''),'.','') END AS image_front,CASE WHEN image_back IS NULL THEN NULL ELSE '/imgback/'||id||'?v='||replace(replace(updated,':',''),'.','') END AS image_back FROM products WHERE ${w}`;
+    const select = `SELECT id,name,sku,description,category,category_id,product_type,price,discount,CASE WHEN product_type='DRINK' THEN carton_price ELSE NULL END AS carton_price,CASE WHEN product_type='DRINK' THEN carton_qty ELSE NULL END AS carton_qty,size,colors,style,quality,video_url,featured,best_seller,new_arrival,flash_deal,low_stock,stock,${IMGURL} AS image,CASE WHEN image_front IS NULL THEN NULL ELSE '/imgfront/'||id||'?v='||replace(replace(updated,':',''),'.','') END AS image_front,CASE WHEN image_back IS NULL THEN NULL ELSE '/imgback/'||id||'?v='||replace(replace(updated,':',''),'.','') END AS image_back FROM products WHERE ${w}`;
     const all = [...a];
     return { items: await db.prepare(`${select} ORDER BY ${sort} LIMIT 24 OFFSET CAST(? AS INTEGER)`).all(...a, ...orderArgs, (pg - 1) * 24), total: (await db.prepare(`SELECT COUNT(*) n FROM products WHERE ${w}`).get(...all)).n, page: pg, cats: await db.prepare('SELECT id,name FROM categories WHERE active=1 ORDER BY name').all() };
   }
-  if (m === 'GET' && p === '/api/featured') return {items: await db.prepare(`SELECT id,name,description,category,price,discount,carton_price,carton_qty,size,colors,quality,video_url,featured,stock,${IMGURL} AS image,CASE WHEN image_front IS NULL THEN NULL ELSE '/imgfront/'||id||'?v='||replace(replace(updated,':',''),'.','') END AS image_front,CASE WHEN image_back IS NULL THEN NULL ELSE '/imgback/'||id||'?v='||replace(replace(updated,':',''),'.','') END AS image_back FROM products WHERE active=1 AND featured=1 AND ` + CV + ` ORDER BY id DESC LIMIT 12`).all()};
+  if (m === 'GET' && p === '/api/featured') return {items: await db.prepare(`SELECT id,name,description,category,product_type,price,discount,CASE WHEN product_type='DRINK' THEN carton_price ELSE NULL END AS carton_price,CASE WHEN product_type='DRINK' THEN carton_qty ELSE NULL END AS carton_qty,size,colors,style,quality,video_url,featured,best_seller,new_arrival,flash_deal,low_stock,stock,${IMGURL} AS image,CASE WHEN image_front IS NULL THEN NULL ELSE '/imgfront/'||id||'?v='||replace(replace(updated,':',''),'.','') END AS image_front,CASE WHEN image_back IS NULL THEN NULL ELSE '/imgback/'||id||'?v='||replace(replace(updated,':',''),'.','') END AS image_back FROM products WHERE active=1 AND featured=1 AND ` + CV + ` ORDER BY id DESC LIMIT 12`).all()};
   if (m === 'GET' && p === '/api/videos') { const pid = +q.get('product') || 0; return { items: await db.prepare(`SELECT v.id,v.title,v.description,v.product_id,v.url,v.created,p.name product_name FROM videos v LEFT JOIN products p ON p.id=v.product_id WHERE v.active=1 AND (CAST(? AS INTEGER)=0 OR v.product_id=CAST(? AS INTEGER)) ORDER BY v.id DESC LIMIT 50`).all(pid,pid) }; }
   if (m === 'POST' && p === '/api/orders') { if (limited('o' + ipOf(req), 20, 36e5)) throw new Err(429, 'Too many orders, try later'); hit('o' + ipOf(req)); return createOrder(body(), String(req.headers['idempotency-key'] || '').slice(0, 64) || null); }
   if ((r = /^\/api\/orders\/(ORD-[A-F0-9]+)\/pay$/.exec(p)) && m === 'POST') {
@@ -438,7 +509,7 @@ async function route(req, res, url, raw) {
         if (m === 'POST' && rr[2]) { const tmp = crypto.randomBytes(9).toString('base64url'); await db.prepare('UPDATE admins SET hash=? WHERE id=?').run(hashPw(tmp), t.id); await db.prepare('DELETE FROM sessions WHERE admin_id=?').run(t.id); return { temp_password: tmp }; }
         if (m === 'PATCH') { const b = body(); if ('role' in b) { if (!['admin', 'staff', 'customer_care'].includes(b.role)) throw new Err(400, 'Invalid team role'); await db.prepare('UPDATE admins SET role=? WHERE id=?').run(b.role, t.id); } if ('active' in b) { await db.prepare('UPDATE admins SET active=? WHERE id=?').run(b.active ? 1 : 0, t.id); if (!b.active) await db.prepare('DELETE FROM sessions WHERE admin_id=?').run(t.id); } return { ok: true }; } }
     }
-    if (m === 'GET' && P === 'products') { await adminOf(req, ['owner','admin']); const pg = Math.max(1, +q.get('page') || 1); return { items: await db.prepare(`SELECT id,name,sku,description,category,category_id,price,discount,carton_price,carton_qty,size,colors,quality,video_url,featured,stock,active,${IMGURL} AS image,CASE WHEN image_front IS NULL THEN NULL ELSE '/imgfront/'||id||'?v='||replace(replace(updated,':',''),'.','') END AS image_front,CASE WHEN image_back IS NULL THEN NULL ELSE '/imgback/'||id||'?v='||replace(replace(updated,':',''),'.','') END AS image_back FROM products ORDER BY id DESC LIMIT 25 OFFSET CAST(? AS INTEGER)`).all((pg - 1) * 25), total: (await db.prepare('SELECT COUNT(*) n FROM products').get()).n, page: pg }; }
+    if (m === 'GET' && P === 'products') { await adminOf(req, ['owner','admin']); const pg = Math.max(1, +q.get('page') || 1); return { items: await db.prepare(`SELECT id,name,sku,description,category,category_id,product_type,price,discount,CASE WHEN product_type='DRINK' THEN carton_price ELSE NULL END AS carton_price,CASE WHEN product_type='DRINK' THEN carton_qty ELSE NULL END AS carton_qty,size,colors,style,quality,video_url,featured,best_seller,new_arrival,flash_deal,low_stock,stock,active,${IMGURL} AS image,CASE WHEN image_front IS NULL THEN NULL ELSE '/imgfront/'||id||'?v='||replace(replace(updated,':',''),'.','') END AS image_front,CASE WHEN image_back IS NULL THEN NULL ELSE '/imgback/'||id||'?v='||replace(replace(updated,':',''),'.','') END AS image_back FROM products ORDER BY id DESC LIMIT 25 OFFSET CAST(? AS INTEGER)`).all((pg - 1) * 25), total: (await db.prepare('SELECT COUNT(*) n FROM products').get()).n, page: pg }; }
     if (m === 'PUT' && P === 'settings') { await adminOf(req, ['owner', 'admin']); const b = body(), up = db.prepare('INSERT INTO settings(k,v) VALUES(?,?) ON CONFLICT(k) DO UPDATE SET v=excluded.v'); for (const k of Object.keys(DEF)) if (k in b) { let v = String(b[k] ?? '').trim().slice(0, 600); if (k === 'fee') v = String(int(v, 0, 1e6, 'Delivery fee')); if (['fb', 'ig', 'x', 'tt'].includes(k) && v && !/^https?:\/\//.test(v)) throw new Err(400, 'Social links must start with https://'); if (k === 'wa') v = v.replace(/\D/g, ''); await up.run(k, v); } return settings(); }
     if ((r = /^customers\/(\d+)\/orders$/.exec(P)) && m === 'GET') { await adminOf(req, ['owner','admin','customer_care']); const rows = await db.prepare('SELECT o.*,c.name customer,c.phone FROM orders o JOIN customers c ON c.id=o.customer_id WHERE c.id=? ORDER BY o.id DESC').all(+r[1]); return Promise.all(rows.map(orderView)); }
     if (P === 'awards' || P.startsWith('awards/')) {
@@ -525,10 +596,10 @@ async function route(req, res, url, raw) {
         }
       }
     }
-    if (m === 'POST' && P === 'products') { await adminOf(req, ['owner', 'admin']); try { const f = await prodFields(body()); return { id: (await db.prepare('INSERT INTO products(name,sku,description,category,price,discount,stock,active,image,category_id,carton_price,carton_qty,size,image_front,image_back,colors,quality,video_url,featured,created,updated) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?) RETURNING id').get(...f, now(), now())).id }; } catch (e) { if (/UNIQUE/.test(e.message)) throw new Err(409, 'SKU already exists'); throw e; } }
+    if (m === 'POST' && P === 'products') { await adminOf(req, ['owner', 'admin']); try { const f = await prodFields(body()); return { id: (await db.prepare('INSERT INTO products(name,sku,description,category,product_type,price,discount,stock,active,image,category_id,carton_price,carton_qty,size,image_front,image_back,colors,style,quality,video_url,featured,best_seller,new_arrival,flash_deal,low_stock,created,updated) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?) RETURNING id').get(...f, now(), now())).id }; } catch (e) { if (/UNIQUE/.test(e.message)) throw new Err(409, 'SKU already exists'); throw e; } }
     if ((r = /^products\/(\d+)$/.exec(P))) {
       await adminOf(req, ['owner', 'admin']);
-      if (m === 'PUT') { const b = body(); const oldp=await db.prepare('SELECT image,image_front,image_back FROM products WHERE id=?').get(+r[1]); if (String(b.image || '').startsWith('/img/')) b.image = oldp?.image || null; if (String(b.image_front || '').startsWith('/imgfront/')) b.image_front = oldp?.image_front || null; if (String(b.image_back || '').startsWith('/imgback/')) b.image_back = oldp?.image_back || null; const f = await prodFields(b), updated = now(); await db.prepare('UPDATE products SET name=?,sku=?,description=?,category=?,price=?,discount=?,stock=?,active=?,image=?,category_id=?,carton_price=?,carton_qty=?,size=?,image_front=?,image_back=?,colors=?,quality=?,video_url=?,featured=?,updated=? WHERE id=?').run(...f, updated, +r[1]); const photos = await db.prepare(`SELECT ${IMGURL} AS image,CASE WHEN image_front IS NULL THEN NULL ELSE '/imgfront/'||id||'?v='||replace(replace(updated,':',''),'.','') END AS image_front,CASE WHEN image_back IS NULL THEN NULL ELSE '/imgback/'||id||'?v='||replace(replace(updated,':',''),'.','') END AS image_back FROM products WHERE id=?`).get(+r[1]); return { ok: true, ...photos }; }
+      if (m === 'PUT') { const b = body(); const oldp=await db.prepare('SELECT image,image_front,image_back FROM products WHERE id=?').get(+r[1]); if (String(b.image || '').startsWith('/img/')) b.image = oldp?.image || null; if (String(b.image_front || '').startsWith('/imgfront/')) b.image_front = oldp?.image_front || null; if (String(b.image_back || '').startsWith('/imgback/')) b.image_back = oldp?.image_back || null; const f = await prodFields(b), updated = now(); await db.prepare('UPDATE products SET name=?,sku=?,description=?,category=?,product_type=?,price=?,discount=?,stock=?,active=?,image=?,category_id=?,carton_price=?,carton_qty=?,size=?,image_front=?,image_back=?,colors=?,style=?,quality=?,video_url=?,featured=?,best_seller=?,new_arrival=?,flash_deal=?,low_stock=?,updated=? WHERE id=?').run(...f, updated, +r[1]); const photos = await db.prepare(`SELECT ${IMGURL} AS image,CASE WHEN image_front IS NULL THEN NULL ELSE '/imgfront/'||id||'?v='||replace(replace(updated,':',''),'.','') END AS image_front,CASE WHEN image_back IS NULL THEN NULL ELSE '/imgback/'||id||'?v='||replace(replace(updated,':',''),'.','') END AS image_back FROM products WHERE id=?`).get(+r[1]); return { ok: true, ...photos }; }
       if (m === 'DELETE') { if (await db.prepare('SELECT 1 FROM order_items WHERE product_id=?').get(+r[1])) { await db.prepare('UPDATE products SET active=0 WHERE id=?').run(+r[1]); return { ok: true, note: 'Has past orders, so it was hidden instead of deleted' }; } await db.prepare('DELETE FROM products WHERE id=?').run(+r[1]); return { ok: true }; }
     }
   }

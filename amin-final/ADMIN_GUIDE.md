@@ -2,16 +2,19 @@
 
 ## Add a new product
 1. Open **Admin > Products > + Add product**.
-2. Enter the product name, category, unit price and stock.
-3. For drinks, optionally enter **carton price** and **carton quantity**.
-4. For clothes, enter **size**, **colors**, **quality/material**, **front photo**, **back photo**, and optional **video URL**.
-5. Tick **Nuna a Talla / Featured** if you want the product to appear in the public Talla section.
-6. Tick **Visible in store**, then Save.
+2. Choose the **Product Type**: Drink, Clothing, or Goods; enter the product name, category, unit price and stock.
+3. For drinks, optionally enter **carton price** and **carton quantity**. Customers can buy by unit or carton only when carton pricing is configured.
+4. For clothing and goods, set the individual-item unit price. Carton pricing is unavailable for these product types.
+5. Enter applicable **size**, **colors**, and **style** options so customers can select them before adding the product to their order.
+6. Add the **front photo**, **back photo**, and optional **video URL** as needed.
+7. Use **Featured**, **Best Seller**, **New Arrival**, and **Flash Deal** to control the marketplace merchandising sections. Tick **Low Stock** to flag an item manually; items with five or fewer in stock are also automatically shown as low stock.
+8. Tick **Nuna a Talla / Featured** if you want the product to appear in the public Talla section.
+9. Tick **Visible in store**, then Save.
 
 ## Change prices
 - Use **Edit** for all product details.
 - Use the quick **Farashi** button to change the unit price immediately.
-- Use **Carton** to change or remove the carton price.
+- Use **Carton** to change or remove a drink's carton price; carton pricing does not apply to clothing or goods.
 
 ## Remove an item
 - Use **Hide** when the item is temporarily unavailable. This keeps its order history safe.

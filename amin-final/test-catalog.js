@@ -39,10 +39,15 @@ const seed = () => {
 
     seed();
     let verify = new DatabaseSync(dbPath, { readOnly: true });
-    const rows = verify.prepare('SELECT name,category,price,stock,description,image FROM products ORDER BY id').all();
+    const rows = verify.prepare('SELECT name,category,product_type,price,stock,description,image FROM products ORDER BY id').all();
     check('all requested catalog entries seeded once', rows.length === catalog.products.filter(p => !p.legacy).length);
     check('legacy categories and names migrate to the requested English catalog', rows.some(p => p.name === 'Coca-Cola' && p.category === 'Drinks') && rows.some(p => p.name === 'Mr V' && p.category === 'Water') && rows.some(p => p.name === 'Hollandia Yoghurt' && p.category === 'Drinks') && rows.some(p => p.name === '5 Alive' && p.category === 'Juice'));
     check('existing prices and stock are preserved', [['Coca-Cola', 4800, 11], ['Mr V', 2200, 22], ['Hollandia Yoghurt', 16500, 33], ['5 Alive', 6000, 44]].every(([name, price, stock]) => rows.some(p => p.name === name && p.price === price && p.stock === stock)));
+    check('legacy and seeded drinks, clothing, and sewing goods receive correct product types',
+      rows.some(p => p.name === 'Coca-Cola' && p.product_type === 'DRINK') &&
+      rows.some(p => p.name === 'Mr V' && p.product_type === 'DRINK') &&
+      rows.some(p => p.name === 'Jallabiya' && p.product_type === 'CLOTHING') &&
+      rows.some(p => p.name === 'Sewing Thread' && p.product_type === 'GOODS'));
     const existingProducts = new Set(['Coca-Cola|Drinks', 'Mr V|Water', 'Hollandia Yoghurt|Drinks', '5 Alive|Juice']);
     check('new products start with stock of exactly 100', rows.filter(p => !existingProducts.has(`${p.name}|${p.category}`)).every(p => p.stock === 100));
     check('every seeded product has a positive price and stock plus its exact category/name image path',

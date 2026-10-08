@@ -244,10 +244,11 @@ function makeSource(sourcePath, baseId, changedAdmin = false) {
     for (const table of [...requiredTables, 'schema_migrations']) assert.ok(tables.has(table), `missing PostgreSQL table ${table}`);
     const productColumns = new Set((await db.all("SELECT column_name FROM information_schema.columns WHERE table_name='products'")).map(row => row.column_name));
     assert.ok(productColumns.has('category_id'), 'products.category_id relationship exists');
-    for (const column of ['image', 'image_front', 'image_back']) {
-      assert.ok(productColumns.has(column), `products.${column} photo field exists in PostgreSQL`);
+    for (const column of ['image', 'image_front', 'image_back', 'style', 'best_seller', 'new_arrival', 'flash_deal']) {
+      assert.ok(productColumns.has(column), `products.${column} field exists in PostgreSQL`);
     }
     assert.equal((await db.get("SELECT COUNT(*)::integer AS count FROM schema_migrations WHERE version='001-initial'")).count, 1, 'repeat PostgreSQL migration is idempotent');
+    assert.equal((await db.get("SELECT COUNT(*)::integer AS count FROM schema_migrations WHERE version='003-marketplace-merchandising'")).count, 1, 'marketplace merchandising migration is applied');
     await db.run('INSERT INTO admins(id,name,email,hash,role,created,active) VALUES(?,?,?,?,?,?,1)',
       adminId, 'Existing Destination Admin', `destination-${baseId}@example.test`, `destination-hash-${baseId}`, 'owner', new Date().toISOString());
     await db.run('INSERT INTO categories(id,name,active) VALUES(?,?,1)', categoryId, `Unrelated category ${baseId}`);

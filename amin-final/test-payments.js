@@ -128,7 +128,7 @@ const close = srv => new Promise(resolve => srv.close(resolve));
     const customer = { name: 'Ada Obi', phone: '08012345678', email: 'ada@example.test' };
     const address = { address: '12 Main Street', state: 'Lagos', city: 'Ikeja' };
     const createOrder = async () => {
-      const result = await request('POST', '/api/orders', { customer, ...address, items: [{ id: productId, qty: 1 }] });
+      const result = await request('POST', '/api/orders', { customer, ...address, items: [{ id: productId, qty: 1, variant: { size: 'XL', color: 'Black' } }] });
       assert.equal(result.status, 200);
       return result.body;
     };
@@ -188,14 +188,14 @@ const close = srv => new Promise(resolve => srv.close(resolve));
 
     const newCoupon = await adminRequest('POST', '/api/admin/coupons', { code: 'SAVE10', percent: 10 });
     const quote = await request('POST', '/api/coupons/validate', { code: 'save10', subtotal: 12000 });
-    const couponOrder = await request('POST', '/api/orders', { customer, ...address, items: [{ id: productId, qty: 1 }], coupon: 'save10', total: 1 });
+    const couponOrder = await request('POST', '/api/orders', { customer, ...address, items: [{ id: productId, qty: 1, variant: { size: 'XL', color: 'Black' } }], coupon: 'save10', total: 1 });
     check('coupon offers validate and server applies the configured discount to the order total',
       newCoupon.status === 200 && quote.status === 200 && quote.body.discount === 1200 &&
       couponOrder.status === 200 && couponOrder.body.total === 12800 && couponOrder.body.discount === 1200);
     await adminRequest('PATCH', '/api/admin/coupons/SAVE10', { active: false });
     check('disabled coupons are rejected by validation and order creation',
       (await request('POST', '/api/coupons/validate', { code: 'SAVE10', subtotal: 12000 })).status === 400 &&
-      (await request('POST', '/api/orders', { customer, ...address, items: [{ id: productId, qty: 1 }], coupon: 'SAVE10' })).status === 400);
+      (await request('POST', '/api/orders', { customer, ...address, items: [{ id: productId, qty: 1, variant: { size: 'XL', color: 'Black' } }], coupon: 'SAVE10' })).status === 400);
 
     const year = Number(new Intl.DateTimeFormat('en', { timeZone: 'Africa/Lagos', year: 'numeric' }).format(new Date()));
     const adaId = db.prepare('SELECT id FROM customers WHERE phone=?').get(customer.phone).id;
@@ -243,10 +243,11 @@ const close = srv => new Promise(resolve => srv.close(resolve));
       awards.body.previous_winners[0].year === year - 1);
 
     const page = fs.readFileSync(path.join(__dirname, 'public', 'index.html'), 'utf8');
-    check('order page offers explicit Pay Now and Continue to Payment actions',
-      page.includes("'Pay Now'") && page.includes("'Continue to Payment'") &&
-      page.includes('location.assign(r.authorization_url)') &&
-      page.includes('location.assign(r.authorization_url)}catch(pe)'));
+    check('order page requires customer confirmation of the server total before Paystack',
+      page.includes('Proceed to Paystack · ${money(o.total)}') &&
+      page.includes("const checked=new Set(items);CART=CART.filter(item=>!checked.has(item));saveCart();go('/order/'+o.no)") &&
+      page.includes('Select for checkout') &&
+      page.includes('location.assign(r.authorization_url)'));
     check('unverified generated illustrations are clearly marked instead of presented as photos',
       page.includes('hasVerifiedPhoto') && page.includes('Real product photo needed') &&
       page.includes('photoNeeded(p.name,false)') && page.includes('product-photo-needed') &&
