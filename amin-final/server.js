@@ -1,4 +1,4 @@
-'use strict';
+ 'use strict';
 // Run with SQLite locally or DATABASE_URL for PostgreSQL.
 const http = require('http'), crypto = require('crypto'), fs = require('fs'), path = require('path');
 const { createDatabase } = require('./database');
