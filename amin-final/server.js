@@ -52,7 +52,6 @@ const awardBounds = year => [`${year}-01-01T00:00:00+01:00`, `${year + 1}-01-01T
 async function awardRanks(year, limit = 10) {
   limit = Math.max(1, Math.min(100, Number(limit) || 10));
   const [from, to] = awardBounds(year);
-  const [from, to] = awardBounds(year);
   return await db.prepare(`SELECT c.id customer_id,c.name,c.phone,c.email,SUM(o.total) spent,COUNT(o.id) paid_orders,COUNT(o.id) orders
     FROM orders o JOIN customers c ON c.id=o.customer_id
     JOIN (SELECT order_id,MIN(verified) paid_at FROM payments WHERE status='paid' AND verified IS NOT NULL GROUP BY order_id) paid ON paid.order_id=o.id
