@@ -340,7 +340,18 @@ async function route(req, res, url, raw) {
   if ((r = /^\/api\/products\/(\d+)$/.exec(p)) && m === 'GET') { const x = await db.prepare(`SELECT id,name,sku,description,category,category_id,product_type,price,discount,CASE WHEN product_type='DRINK' THEN carton_price ELSE NULL END AS carton_price,CASE WHEN product_type='DRINK' THEN carton_qty ELSE NULL END AS carton_qty,size,stock,colors,style,quality,video_url,featured,best_seller,new_arrival,flash_deal,low_stock,${IMGURL} AS image,CASE WHEN image_front IS NULL THEN NULL ELSE '/imgfront/'||id||'?v='||replace(replace(updated,':',''),'.','') END AS image_front,CASE WHEN image_back IS NULL THEN NULL ELSE '/imgback/'||id||'?v='||replace(replace(updated,':',''),'.','') END AS image_back FROM products WHERE id=? AND active=1 AND ${CV}`).get(+r[1]); if (!x) throw new Err(404, 'Product not found'); return x; }
   if (m === 'GET' && p === '/api/products') {
     const pg = Math.max(1, +q.get('page') || 1), s = '%' + (q.get('q') || '').replace(/[%_]/g, '') + '%', cat = +q.get('cat') || 0;
-    let w = 'active=1 AND ' + CV + " AND (LOWER(name) LIKE LOWER(?) OR LOWER(category) LIKE LOWER(?) OR LOWER(sku) LIKE LOWER(?)) AND (CAST(? AS INTEGER)=0 OR category_id=CAST(? AS INTEGER)) AND (CAST(? AS INTEGER)=0 OR stock>0)";
+    const searchTerm = (q.get('q') || '').trim();
+let w = 'active=1 AND ' + CV +
+  " AND (LOWER(name) LIKE LOWER(?) OR LOWER(category) LIKE LOWER(?) OR LOWER(sku) LIKE LOWER(?)) AND (CAST(? AS INTEGER)=0 OR category_id=CAST(? AS INTEGER)) AND (CAST(? AS INTEGER)=0 OR stock>0)";
+
+const a = [
+  '%' + searchTerm + '%',
+  '%' + searchTerm + '%',
+  '%' + searchTerm + '%',
+  cat,
+  cat,
+  q.get('instock') === '1' ? 1 : 0
+];
     const a = [s, s, s, cat, cat, q.get('instock') === '1' ? 1 : 0];
     const add = (sql, ...values) => { w += ' AND (' + sql + ')'; a.push(...values); };
     if (q.get('type')) {
