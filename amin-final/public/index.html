@@ -154,7 +154,8 @@ function shop(){$('#app').innerHTML=`<section class="hero"><h1>${esc(CFG.name)}<
  api('GET','/featured').then(j=>{const f=$('#featured'),items=j.items||[];if(f)f.innerHTML=items.length?items.map(pcard).join(''):'<div class="empty">No featured products yet.</div>'}).catch(()=>{});
  let t;$('#sq').oninput=e=>{clearTimeout(t);t=setTimeout(()=>{q=e.target.value;pg=1;list()},250)};list()}
 async function list(){const L=$('#list');L.innerHTML='<div class="empty">Loading…</div>';
- tryconst j=await api('GET',`/products?q=${encodeURIComponent(q.trim())}&cat=${encodeURIComponent(cat)}&page=${pg}${avail?'&instock=1':''}`);
+ try {
+  const j = await api('GET', `/products?q=${encodeURIComponent(q.trim())}&cat=${encodeURIComponent(cat)}&page=${pg}${avail?'&instock=1':''}`);
   $('#chips').innerHTML=[{id:'',name:'All'},...j.cats].map(c=>`<button class="chip ${String(c.id)==String(cat)?'on':''}" data-c="${c.id}" onclick="cat=this.dataset.c;pg=1;list()">${esc(c.name)}</button>`).join('')+`<label style="margin:0;display:flex;gap:6px;align-items:center;white-space:nowrap"><input type="checkbox" style="width:auto;min-height:0" ${avail?'checked':''} onchange="avail=this.checked;pg=1;list()">In stock</label>`;
   j.items.forEach(p=>CP[p.id]=p);const pages=Math.ceil(j.total/24);
   L.innerHTML=j.items.length?`<div class="grid">${j.items.map(pcard).join('')}</div>${pages>1?`<div class="row" style="justify-content:center;margin-top:12px"><button class="btn s sm" ${pg<2?'disabled':''} onclick="pg--;list()">Previous</button><span>Page ${pg} of ${pages}</span><button class="btn s sm" ${pg>=pages?'disabled':''} onclick="pg++;list()">Next</button></div>`:''}`:`<div class="empty"><h3>${q||cat||avail?'No products found':'No products yet'}</h3><p>${q||cat||avail?'Try a different search or category.':'Check back soon.'}</p></div>`}
