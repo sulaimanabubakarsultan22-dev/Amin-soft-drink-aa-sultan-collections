@@ -105,8 +105,39 @@ function chrome(){document.title=CFG.name;$('#logo').innerHTML=`<img class=\"bra
  const L=[['Facebook',CFG.fb],['Instagram',CFG.ig],['X',CFG.x],['TikTok',CFG.tt]].filter(x=>x[1]).map(x=>`<a href="${esc(x[1])}" target="_blank" rel="noopener">${x[0]}</a>`).join(' · ');
  const contact=`<div class="contact-bar">${CFG.phone?`<a class="btn s sm" href="tel:${esc(CFG.phone)}">📞 Call ${esc(CFG.phone)}</a>`:''}${CFG.wa?`<a class="btn s sm" href="${waLink('Hello '+CFG.name+', I would like to place an order.') }" target="_blank" rel="noopener">💬 WhatsApp</a>`:''}${CFG.fb?`<a class="btn s sm" href="${esc(CFG.fb)}" target="_blank" rel="noopener">Facebook</a>`:''}${CFG.ig?`<a class="btn s sm" href="${esc(CFG.ig)}" target="_blank" rel="noopener">Instagram</a>`:''}</div>`;
  $('#ft').innerHTML=`<div><strong>${esc(CFG.name)}</strong>${CFG.phone?' · '+esc(CFG.phone):''}</div><div style="margin-top:6px">${L}</div>${CFG.address?`<div style="margin-top:6px">${esc(CFG.address)}</div>`:''}${CFG.hours?`<div style="margin-top:6px">${esc(CFG.hours)}</div>`:''}${CFG.wa?`<p><a class="btn sm" style="text-decoration:none;display:inline-block" href="${waLink('Hello '+CFG.name)}" target="_blank" rel="noopener">Chat on WhatsApp</a></p>`:''}<small>Order online • Pay securely • Delivery to your location</small>`}
-const renderContacts=chrome;
-chrome=function(){renderContacts();$('#care').href=waLink('Hello '+CFG.name+', I would like more information.');$('#ft').insertAdjacentHTML('beforeend',`<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,260px),1fr));gap:12px;margin:16px 0"><section class="card" aria-labelledby="care-heading"><h2 id="care-heading" style="margin-top:0">Customer Care</h2><div class="contact-bar"><a class="btn s sm" href="tel:${esc(CFG.care1)}">📞 ${esc(CFG.care1)}</a><a class="btn s sm" href="tel:${esc(CFG.care2)}">📞 ${esc(CFG.care2)}</a></div><a class="btn s sm" href="${waLink('Hello '+CFG.name+', I need help.')}" target="_blank" rel="noopener">💬 WhatsApp Customer Care</a></section><section class="card" aria-labelledby="delivery-heading"><h2 id="delivery-heading" style="margin-top:0">Delivery</h2><div class="contact-bar"><a class="btn s sm" href="tel:${esc(CFG.delivery1)}">📞 ${esc(CFG.delivery1)}</a><a class="btn s sm" href="tel:${esc(CFG.delivery2)}">📞 ${esc(CFG.delivery2)}</a></div></section></div>`)}
+const renderContacts = chrome;
+
+chrome = function () {
+  renderContacts();
+
+  const care = $('#care');
+  if (care) {
+    care.href = waLink('Hello ' + CFG.name + ', I would like more information.');
+  }
+
+  const footer = $('#ft');
+  if (footer) {
+    footer.insertAdjacentHTML('beforeend', `
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,260px),1fr));gap:12px;margin:16px 0">
+        <section class="card" aria-labelledby="care-heading">
+          <h2 id="care-heading" style="margin-top:0">Customer Care</h2>
+          <div class="contact-bar">
+            <a class="btn s sm" href="tel:${esc(CFG.care1)}">📞 ${esc(CFG.care1)}</a>
+            <a class="btn s sm" href="tel:${esc(CFG.care2)}">📞 ${esc(CFG.care2)}</a>
+          </div>
+          <a class="btn s sm" href="${waLink('Hello ' + CFG.name + ', I need help.')}" target="_blank" rel="noopener">💬 WhatsApp Customer Care</a>
+        </section>
+        <section class="card" aria-labelledby="delivery-heading">
+          <h2 id="delivery-heading" style="margin-top:0">Delivery</h2>
+          <div class="contact-bar">
+            <a class="btn s sm" href="tel:${esc(CFG.delivery1)}">📞 ${esc(CFG.delivery1)}</a>
+            <a class="btn s sm" href="tel:${esc(CFG.delivery2)}">📞 ${esc(CFG.delivery2)}</a>
+          </div>
+        </section>
+      </div>
+    `);
+  }
+};
 /* ---------- storefront ---------- */
 let cat='',q='',avail=false,pg=1,sortBy='relevance',minPrice='',maxPrice='',sizeFilter='',colorFilter='',styleFilter='',typeFilter='',groupFilter='';
 let WISHLIST=new Set(),RECENT=[];
