@@ -344,7 +344,7 @@ async function route(req, res, url, raw) {
 let w = 'active=1 AND ' + CV +
   " AND (LOWER(name) LIKE LOWER(?) OR LOWER(category) LIKE LOWER(?) OR LOWER(sku) LIKE LOWER(?)) AND (CAST(? AS INTEGER)=0 OR category_id=CAST(? AS INTEGER)) AND (CAST(? AS INTEGER)=0 OR stock>0)";
 
-const a = [
+const searchArgs = [
   '%' + searchTerm + '%',
   '%' + searchTerm + '%',
   '%' + searchTerm + '%',
